@@ -707,7 +707,7 @@ body.in-run #hud-info{display:none}
 <div id="mm">
   <div class="mm-top">
     <button id="mm-trainer" title="Editar entrenador"><canvas id="mm-portrait" width="26" height="23"></canvas><span id="mm-name"></span></button>
-    <div class="mm-right"><div id="mm-balls" class="mm-chip" title="Poké Balls para el gacha"><i class="ball"></i><b>0</b></div><button id="mm-gear" title="Ajustes"></button></div>
+    <div class="mm-right"><button id="mm-login" class="mm-chip" style="display:none">Iniciar sesión</button><div id="mm-balls" class="mm-chip" title="Poké Balls para el gacha"><i class="ball"></i><b>0</b></div><button id="mm-gear" title="Ajustes"></button></div>
   </div>
   <div class="mm-left">
     <div class="logo"><span class="l1">POKE</span><span class="l2">RUSH</span><small>Roguelite de captura</small></div>
@@ -6495,12 +6495,17 @@ Object.assign(G, { hash2, mulberry32, vnoise, fbm, fbmN, bayer, C, unpack, pack,
   const KEY = 'rg1_online', AKEY = 'rg1_online_auth';
   const load = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } };
+  // la configuración puede venir del juego (guardada), del bloque POKERUSH_ONLINE o del bloque
+  // "const firebaseConfig = {...}" que da la consola de Firebase (si lo pegaste tal cual)
   ON.config = () => {
     const c = load(KEY) || {}, w = window.POKERUSH_ONLINE || {};
-    const databaseURL = (c.databaseURL || w.databaseURL || '').trim().replace(/\/+$/, '');
-    const proj = (/^https:\/\/([a-z0-9-]+?)(-default-rtdb)?\./i.exec(databaseURL) || [])[1] || '';
-    return { apiKey: (c.apiKey || w.apiKey || '').trim(), databaseURL, authDomain: (c.authDomain || w.authDomain || (proj ? proj + '.firebaseapp.com' : '')).trim(), projectId: proj };
+    let f = {}; try { if (typeof firebaseConfig !== 'undefined' && firebaseConfig) f = firebaseConfig; } catch (e) { } if (window.firebaseConfig) f = window.firebaseConfig;
+    const pick = k => String(c[k] || w[k] || f[k] || '').trim();
+    let databaseURL = pick('databaseURL').replace(/\/+$/, ''), proj = pick('projectId') || (/^https:\/\/([a-z0-9-]+?)(-default-rtdb)?\./i.exec(databaseURL) || [])[1] || '';
+    if (!databaseURL && proj) databaseURL = 'https://' + proj + '-default-rtdb.firebaseio.com'; // base de datos en EE. UU. por defecto
+    return { apiKey: pick('apiKey'), databaseURL, authDomain: pick('authDomain') || (proj ? proj + '.firebaseapp.com' : ''), projectId: proj };
   };
+  ON.missing = () => { const c = ON.config(), m = []; if (!c.apiKey) m.push('apiKey'); if (!/^https:\/\/.+/.test(c.databaseURL)) m.push('databaseURL'); return m; };
   ON.setConfig = (apiKey, databaseURL, authDomain) => { save(KEY, { apiKey: (apiKey || '').trim(), databaseURL: (databaseURL || '').trim(), authDomain: (authDomain || '').trim() }); ON.status = 'sin probar'; };
   ON.configured = () => { const c = ON.config(); return !!(c.apiKey && /^https:\/\/.+/.test(c.databaseURL)); };
   ON.status = 'sin probar';
@@ -7659,7 +7664,7 @@ Object.assign(G, { hash2, mulberry32, vnoise, fbm, fbmN, bayer, C, unpack, pack,
     lel.classList.add('on');
     const msg = (s, ok) => { const m = lel.querySelector('#lg-msg'); m.textContent = s; m.className = ok ? 'ok' : 'err'; };
     const busy = v => lel.querySelectorAll('button,input').forEach(b => b.disabled = v);
-    const finish = async () => { msg('¡Sesión iniciada! Cargando tu progreso…', true); const r = await SO.sync(); if (r === 'reload') return; lel.classList.remove('on'); startBeat(); toast(`Sesión iniciada · ${PROV[ON.user().provider] || ''}`); done && done(); };
+    const finish = async () => { msg('¡Sesión iniciada! Cargando tu progreso…', true); const r = await SO.sync(); if (r === 'reload') return; lel.classList.remove('on'); startBeat(); SO.topChip(); toast(`Sesión iniciada · ${PROV[ON.user().provider] || ''}`); done && done(); };
     const run = fn => async () => { busy(true); msg('Conectando…', true); try { await fn(); await finish(); } catch (e) { msg(e.message); } busy(false); };
     const mail = () => lel.querySelector('#lg-mail').value.trim(), pass = () => lel.querySelector('#lg-pass').value;
     lel.querySelector('#lg-google').onclick = run(() => ON.signInGoogle());
@@ -7671,20 +7676,23 @@ Object.assign(G, { hash2, mulberry32, vnoise, fbm, fbmN, bayer, C, unpack, pack,
     const sk = lel.querySelector('#lg-skip'); if (sk) sk.onclick = () => { sessionStorage.setItem('rg1_skip_login', '1'); lel.classList.remove('on'); done && done(); };
     const cl = lel.querySelector('#lg-close'); if (cl) cl.onclick = () => lel.classList.remove('on');
   };
-  SO.logout = function () { ON.signOut(); clearInterval(beat); code = null; toast('Sesión cerrada'); };
+  SO.logout = function () { ON.signOut(); clearInterval(beat); code = null; toast('Sesión cerrada'); SO.topChip(); };
+  // botón de la barra superior del menú: se ve si hay Firebase y no has iniciado sesión
+  SO.topChip = function () { const b = $('#mm-login'); if (!b) return; const show = ON.configured() && !ON.user(); b.style.display = show ? '' : 'none'; b.onclick = () => SO.login(() => SO.topChip(), { closable: true }); };
+  setInterval(() => SO.topChip(), 3000);
 
   // el menú arranca con el inicio de sesión si hay Firebase configurado
   const origStart = G.MENU.start;
   G.MENU.start = function () {
     if (ON.configured() && !ON.user() && !sessionStorage.getItem('rg1_skip_login')) { document.body.classList.add('in-menu'); SO.login(() => origStart.call(G.MENU)); return; }
-    origStart.call(G.MENU);
+    origStart.call(G.MENU); SO.topChip();
     if (ON.configured() && ON.user()) { if (sessionStorage.getItem('rg1_cloud_loaded')) { sessionStorage.removeItem('rg1_cloud_loaded'); toast('Progreso cargado desde tu cuenta'); startBeat(); } else SO.sync().then(r => { if (r !== 'reload') startBeat(); }); }
   };
 
   // ================== ajustes: cuenta ==================
   SO.fillAccount = function (box, rerender) {
     if (!box) return;
-    if (!ON.configured()) { box.innerHTML = '<em class="hint">Sin Firebase configurado</em> <button class="ghost" id="acc-cfg">Configurar</button>'; box.querySelector('#acc-cfg').onclick = () => G.MG.openSetup(); return; }
+    if (!ON.configured()) { box.innerHTML = `<em class="hint">Firebase sin configurar: falta ${ON.missing().join(' y ')}</em> <button class="ghost" id="acc-cfg">Configurar</button>`; box.querySelector('#acc-cfg').onclick = () => G.MG.openSetup(); return; }
     const u = ON.user();
     if (!u) { box.innerHTML = '<em class="hint">No has iniciado sesión</em> <button class="ghost" id="acc-in">Iniciar sesión</button>'; box.querySelector('#acc-in').onclick = () => SO.login(rerender, { closable: true }); return; }
     box.innerHTML = `<span class="acc-who">${PROV[u.provider] || ''}${u.email ? ' · ' + esc(u.email) : ''}</span> <button class="ghost" id="acc-out">Cerrar sesión</button>`;
