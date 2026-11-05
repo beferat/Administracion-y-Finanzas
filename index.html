@@ -5046,7 +5046,7 @@ Object.assign(G, { hash2, mulberry32, vnoise, fbm, fbmN, bayer, C, unpack, pack,
 
   // ---------- nueva partida ----------
   RUN.newRun = function () {
-    Object.assign(RUN, { on: true, round: 1, coins: 0, hp: RUN.hpMax(), inv: { ball: 0, pocion: 0, revivir: 0, revmax: 0, llave: 0, piedra: 0 }, buffs: {}, t0: performance.now(), time: 0, dead: false, caps: 0,
+    Object.assign(RUN, { on: true, round: 1, coins: 0, hp: RUN.hpMax(), inv: { ball: 0, pocion: 0, revivir: 0, revmax: 0, llave: 0, piedra: 0 }, buffs: {}, t0: performance.now(), time: 0, dead: false, caps: 0, ifr: 0, lastHit: null,
       masterAt: Math.random() < 0.005 ? 60 + Math.random() * 420 : -1 }); // 0,5 %: en esta partida aparecerá una Master Ball
     G.COMBAT.newRun(); hud();
   };
@@ -5085,9 +5085,14 @@ Object.assign(G, { hash2, mulberry32, vnoise, fbm, fbmN, bayer, C, unpack, pack,
     refreshSprite(m, m.arena); G.COMBAT.onMap(m); if (G.MISS) G.MISS.setup(m); hud();
   };
   // daño al entrenador (golpes de los salvajes)
-  RUN.hurt = function (dmg) {
-    if (!RUN.on || RUN.dead) return; RUN.hp -= dmg * RUN.dmgTaken() * (1 - G.COMBAT.shield()); G.GAME.st.hurtT = 0.25; hudHP();
-    if (RUN.hp <= 0) die();
+  RUN.hurt = function (dmg, src) {
+    if (!RUN.on || RUN.dead) return 0; const mx = RUN.hpMax();
+    let d = dmg * RUN.dmgTaken() * (1 - G.COMBAT.shield());
+    if (RUN.ifr > 0) d *= 0.25;            // justo después de un golpe fuerte, los siguientes hacen mucho menos
+    d = Math.min(d, mx * 0.28);            // ningún golpe puede quitar más de un 28 % de la vida: no hay muertes de un golpe
+    if (d >= mx * 0.12) RUN.ifr = 0.6;
+    RUN.hp -= d; if (src) RUN.lastHit = src; G.GAME.st.hurtT = Math.max(G.GAME.st.hurtT || 0, RUN.ifr > 0 ? 0.6 : 0.25); hudHP();
+    if (RUN.hp <= 0) die(); return d;
   };
   function refreshSprite(m, q) {
     if (!q || !q.prop) return; const th = G.STRUCT.THEMES[m.biome.id]; const key = q.kind === 'arena' ? 'portal' : q.kind;
@@ -5099,6 +5104,7 @@ Object.assign(G, { hash2, mulberry32, vnoise, fbm, fbmN, bayer, C, unpack, pack,
   let altarRedraw = 0;
   RUN.update = function (dt, st) {
     if (!RUN.on || RUN.dead) return; const m = st.map, p = st.player; if (!m || !m.items) return; // mapa aún no preparado para la partida
+    RUN.ifr = Math.max(0, (RUN.ifr || 0) - dt);
     // recoger objetos
     const mag = RUN.magnetMul() * (1 + ((G.COMBAT.runMods().t_mag) || 0) / 100);
     for (let i = m.items.length - 1; i >= 0; i--) { const it = m.items[i], d = Math.hypot(it.x - p.x, it.y - (p.y - 4)); if (d < 12 * mag) { m.items.splice(i, 1); give(it.k, it.amt, true); } else if (d < 34 * mag && mag > 1) { it.x += (p.x - it.x) / d * 60 * dt; it.y += (p.y - 4 - it.y) / d * 60 * dt; } }
@@ -5234,7 +5240,7 @@ Object.assign(G, { hash2, mulberry32, vnoise, fbm, fbmN, bayer, C, unpack, pack,
   // ---------- muerte ----------
   function die() {
     RUN.dead = true; RUN.hp = 0; hud(); const r = RUN.end('muerte');
-    panel('Te has debilitado', `<div class="death"><p>Tu entrenador no ha podido más.</p><div class="row"><span>Ronda alcanzada</span><em>${RUN.round}</em></div><div class="row"><span>Tiempo</span><em>${Math.floor(r.secs / 60)}:${String(r.secs % 60).padStart(2, '0')}</em></div><div class="row"><span>Capturas</span><em>${RUN.caps || 0}</em></div><div class="row"><span>Poké Balls al gacha</span><em>${r.balls}</em></div><div class="row"><span>RushCoins guardadas</span><em>${r.coins}</em></div><p class="hint">Las RushCoins que te sobran se guardan para comprar mejoras en el lobby.</p></div>`,
+    panel('Te has debilitado', `<div class="death"><p>Tu entrenador no ha podido más.</p>${RUN.lastHit ? `<p class="hint">Te ha derrotado: <b>${RUN.lastHit}</b></p>` : ''}<div class="row"><span>Ronda alcanzada</span><em>${RUN.round}</em></div><div class="row"><span>Tiempo</span><em>${Math.floor(r.secs / 60)}:${String(r.secs % 60).padStart(2, '0')}</em></div><div class="row"><span>Capturas</span><em>${RUN.caps || 0}</em></div><div class="row"><span>Poké Balls al gacha</span><em>${r.balls}</em></div><div class="row"><span>RushCoins guardadas</span><em>${r.coins}</em></div><p class="hint">Las RushCoins que te sobran se guardan para comprar mejoras en el lobby.</p></div>`,
       box => { const b = document.createElement('button'); b.className = 'cta'; b.textContent = 'Volver al lobby'; b.onclick = () => { closePanel(); G.MENU.show(); }; box.appendChild(b); }, true);
   }
   // ---------- panel genérico ----------
@@ -5479,11 +5485,12 @@ Object.assign(G, { hash2, mulberry32, vnoise, fbm, fbmN, bayer, C, unpack, pack,
   }
   function healTrainer(v) { if (v <= 0) return; G.RUN.hp = Math.min(G.RUN.hpMax(), G.RUN.hp + v); }
   function hurtMember(tm, dmg) {
-    if (tm.fainted) return; dmg = Math.max(1, Math.round(dmg * (1 - Math.min(0.5, (tm.mods.def || 0) + tm.lob.def)))); tm.hp -= dmg; tm.flash = 1; num(tm.x, tm.y - 20, dmg, '#ff5a5a', false); G.SFX && G.SFX.teamHurt();
+    if (tm.fainted) return; dmg = Math.max(1, Math.round(Math.min(dmg * (1 - Math.min(0.5, (tm.mods.def || 0) + tm.lob.def)), tm.hpMax * 0.4))); // ningún golpe quita más de un 40 % tm.hp -= dmg; tm.flash = 1; num(tm.x, tm.y - 20, dmg, '#ff5a5a', false); G.SFX && G.SFX.teamHurt();
     if (tm.hp <= 0) { tm.hp = 0; tm.fainted = true; tm.faintT = 0; G.SFX && G.SFX.faint(); msg(`¡${tm.d.name} se ha debilitado! · Usa Revivir (2) o Revivir máximo (3)`); }
   }
   function hurtTrainer(dmg, e) {
-    const st = G.GAME.st; G.RUN.hurt(dmg); G.SFX && G.SFX.hurt(); st.hitT = 0.22; num(st.player.x, st.player.y - 30, Math.round(dmg * G.RUN.dmgTaken() * (1 - PAS.shield)), '#ff3a3a', false);
+    const st = G.GAME.st, src = e && e.d ? `${e.d.name}${e.boss ? ' (jefe)' : e.alpha ? ' (alfa)' : e.rival ? ' (rival)' : ''}` : null;
+    const d = G.RUN.hurt(dmg, src) || 0; G.SFX && G.SFX.hurt(); st.hitT = 0.22; if (d >= 0.5) num(st.player.x, st.player.y - 30, Math.round(d), '#ff3a3a', false);
     if (e && PAS.thorns && !e.dead) { e.hp -= Math.round((6 + CB.trainerLevel() * 0.4) * PAS.thorns); e.flash = 1; if (e.hp <= 0) kill(e, team.find(t => !t.fainted) || null); }
   }
   // ---------------- experiencia ----------------
@@ -5852,12 +5859,16 @@ Object.assign(G, { hash2, mulberry32, vnoise, fbm, fbmN, bayer, C, unpack, pack,
     for (const q of parts) { const a = 1 - q.l / q.life; ctx.globalAlpha = a; ctx.fillStyle = q.c; const s = q.sz || 1; ctx.fillRect(Math.round(q.x - cx), Math.round(q.y - cy), s, s); } ctx.globalAlpha = 1;
     // barras de vida de los salvajes heridos y del equipo
     for (const e of enemies) {
-      if (e.dead || e.boss || e.alpha || e.rival || e.hp >= e.hpMax) continue; // jefes, alfas y rivales tienen su propia barra const x = Math.round(e.x - cx), y = Math.round(e.y - cy - e.sz * (e.alpha ? 1.25 : 0.95) - 3); if (x < -20 || x > st.vw + 20 || y < -10 || y > st.vh + 10) continue;
-      const w = e.alpha ? 26 : e.rival ? 20 : 14; ctx.fillStyle = '#0a0610'; ctx.fillRect(x - w / 2 - 1, y - 1, w + 2, 4); ctx.fillStyle = '#3a1a20'; ctx.fillRect(x - w / 2, y, w, 2); ctx.fillStyle = e.alpha ? '#ffc040' : e.rival ? '#c070ff' : e.hp / e.hpMax > 0.5 ? '#6ae86a' : e.hp / e.hpMax > 0.2 ? '#f0c030' : '#ff4a4a'; ctx.fillRect(x - w / 2, y, Math.max(1, Math.round(w * e.hp / e.hpMax)), 2);
+      // jefes, alfas y rivales tienen su propia barra; los demás salvajes la llevan siempre
+      if (e.dead || e.boss || e.alpha || e.rival) continue; const x = Math.round(e.x - cx), y = Math.round(e.y - cy - e.sz * (e.alpha ? 1.25 : 0.95) - 3); if (x < -20 || x > st.vw + 20 || y < -10 || y > st.vh + 10) continue;
+      const w = e.alpha ? 26 : e.rival ? 20 : 14; ctx.fillStyle = '#0a0610'; ctx.fillRect(x - w / 2 - 1, y - 1, w + 2, 4); ctx.fillStyle = '#3a1a20'; ctx.fillRect(x - w / 2, y, w, 2); ctx.fillStyle = e.shiny ? '#fff070' : '#ff4a4a'; // salvajes en rojo, tu equipo en verde ctx.fillRect(x - w / 2, y, Math.max(1, Math.round(w * e.hp / e.hpMax)), 2);
       const S = e.stt; let ix = x + w / 2 + 2; const ic = c => { ctx.fillStyle = c; ctx.fillRect(ix, y - 1, 3, 3); ix += 4; };
       if (S.burn > 0) ic('#ff7a2a'); if (S.poison > 0 || S.toxic > 0) ic('#b050e0'); if (S.stun > 0) ic('#f8e040'); if (S.confuse > 0) ic('#ff80c0'); if (S.slow) ic('#70b0ff');
     }
-    team.forEach((tm, i) => { const tp = st.teamPos[i]; if (!tp || tm.fainted) return; const x = Math.round(tp.x - cx), y = Math.round(tp.y - cy + 3); ctx.fillStyle = '#0a0610'; ctx.fillRect(x - 8, y, 16, 3); ctx.fillStyle = '#204a20'; ctx.fillRect(x - 7, y + 1, 14, 1); ctx.fillStyle = tm.hp / tm.hpMax > 0.3 ? '#5ae85a' : '#ff5a4a'; ctx.fillRect(x - 7, y + 1, Math.max(1, Math.round(14 * tm.hp / tm.hpMax)), 1); });
+    // barra de vida de tu equipo, encima de cada Pokémon
+    team.forEach((tm, i) => { const tp = st.teamPos[i]; if (!tp || tm.fainted) return; const k = tm.hp / tm.hpMax, x = Math.round(tp.x - cx), y = Math.round(tp.y - cy - G.POKE.targetSize(tm.n) * 0.9 - 6);
+      ctx.fillStyle = '#0a0610'; ctx.fillRect(x - 10, y - 1, 20, 5); ctx.fillStyle = '#1a3a1a'; ctx.fillRect(x - 9, y, 18, 3); ctx.fillStyle = k > 0.5 ? '#5ae85a' : k > 0.25 ? '#f0d040' : '#ff5a4a'; ctx.fillRect(x - 9, y, Math.max(1, Math.round(18 * k)), 3);
+      ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(x - 9, y, Math.max(1, Math.round(18 * k)), 1); });
     for (const n of nums) { ctx.globalAlpha = 1 - Math.max(0, n.t - 0.5) / 0.3; drawNum(ctx, n.v, n.x - cx, n.y - cy - (n.ult ? 6 : 0), n.ult ? (Math.floor(n.t * 12) % 2 ? '#ffe060' : '#ffffff') : n.col, n.ult ? 2 : 1); } ctx.globalAlpha = 1;
   };
 
@@ -7260,9 +7271,9 @@ body.boss-fight #cb-wave{display:none!important}
     if (e.act) {
       const a = e.act; a.t += dt; e.moving = false;
       if (a.k === 'charge') {
-        if (a.t < 0.75) { e.flash = Math.max(e.flash, Math.sin(a.t * 30) > 0 ? 0.6 : 0); if (!a.dir) a.dir = Math.atan2(tg.y - e.y, tg.x - e.x); e.dir = A().dirOf(Math.cos(a.dir), Math.sin(a.dir)); return true; }
-        if (a.t < 1.5) { const v = e.spd * 4.2 * dt; A().tryMove(e, Math.cos(a.dir) * v, Math.sin(a.dir) * v); e.moving = true; if (R() < 0.8) parts.push({ x: e.x, y: e.y - 3, vx: (R() - 0.5) * 30, vy: -R() * 20, l: 0, life: 0.5, c: '#d8c8b0', sz: 2 });
-          const p = st.player; if (!a.hitP && dist(p.x, p.y, e.x, e.y) < e.r + 10) { a.hitP = 1; A().hurtTrainer(baseDmg(e) * 1.6, e); shake(8); }
+        if (a.t < 0.95) { e.flash = Math.max(e.flash, Math.sin(a.t * 30) > 0 ? 0.6 : 0); if (!a.dir) a.dir = Math.atan2(tg.y - e.y, tg.x - e.x); e.dir = A().dirOf(Math.cos(a.dir), Math.sin(a.dir)); return true; }
+        if (a.t < 1.7) { const v = e.spd * 4.2 * dt; A().tryMove(e, Math.cos(a.dir) * v, Math.sin(a.dir) * v); e.moving = true; if (R() < 0.8) parts.push({ x: e.x, y: e.y - 3, vx: (R() - 0.5) * 30, vy: -R() * 20, l: 0, life: 0.5, c: '#d8c8b0', sz: 2 });
+          const p = st.player; if (!a.hitP && dist(p.x, p.y, e.x, e.y) < e.r + 10) { a.hitP = 1; A().hurtTrainer(baseDmg(e) * 1.3, e); shake(8); }
           for (const tm of G.COMBAT.team()) { if (tm.fainted || tm.x === undefined || (a.hit || (a.hit = new Set())).has(tm)) continue; if (dist(tm.x, tm.y, e.x, e.y) < e.r + 10) { a.hit.add(tm); A().hurtMember(tm, baseDmg(e) * 1.3); } }
           return true; }
         e.act = null; return true;
@@ -7274,14 +7285,18 @@ body.boss-fight #cb-wave{display:none!important}
       const opts = ['fan', 'ring', 'slam', 'charge'].concat(e.phase === 2 ? ['rain', 'ring'] : []);
       let k = opts[Math.floor(R() * opts.length)]; if (k === e.lastAct) k = opts[(opts.indexOf(k) + 1) % opts.length]; e.lastAct = k;
       const dmg = baseDmg(e), a0 = Math.atan2(tg.y - 8 - (e.y - e.sz * 0.45), tg.x - e.x);
-      if (k === 'fan') { const n = e.phase === 2 ? 9 : 6; for (let i = 0; i < n; i++) shoot(e, a0 + (i - (n - 1) / 2) * 0.16, 105, dmg * 0.8, { sc: 1.8, r: 3, glow: true }); castPose(e, 0.4); e.act = { k, t: 0, dur: 0.6 }; sfx('enemyShot'); }
-      if (k === 'ring') { const n = e.phase === 2 ? 22 : 15, off = R(); for (let i = 0; i < n; i++) shoot(e, off + i / n * 6.283, 80, dmg * 0.7, { sc: 1.6, r: 2, glow: true, life: 3.5 }); castPose(e, 0.5); e.act = { k, t: 0, dur: 0.8 }; shake(4); sfx('ultCharge'); }
-      if (k === 'slam') { const p = st.player, n = e.phase === 2 ? 5 : 3; telegraph(p.x, p.y, 34, 1.15, dmg * 1.5, '#ff3030', e); for (let i = 1; i < n; i++) { const a = R() * 6.283, r = 40 + R() * 50; telegraph(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r * 0.7, 28, 1.15 + i * 0.15, dmg * 1.3, '#ff3030', e); } castPose(e, 0.6); e.act = { k, t: 0, dur: 0.9 }; sfx('alpha'); }
+      if (k === 'fan') { const n = e.phase === 2 ? 9 : 6; for (let i = 0; i < n; i++) shoot(e, a0 + (i - (n - 1) / 2) * 0.16, 105, dmg * 0.6, { sc: 1.8, r: 3, glow: true }); castPose(e, 0.4); e.act = { k, t: 0, dur: 0.6 }; sfx('enemyShot'); }
+      if (k === 'ring') { const n = e.phase === 2 ? 22 : 15, off = R(); for (let i = 0; i < n; i++) shoot(e, off + i / n * 6.283, 80, dmg * 0.55, { sc: 1.6, r: 2, glow: true, life: 3.5 }); castPose(e, 0.5); e.act = { k, t: 0, dur: 0.8 }; shake(4); sfx('ultCharge'); }
+      if (k === 'slam') { const p = st.player, n = e.phase === 2 ? 5 : 3; telegraph(p.x, p.y, 34, 1.15, dmg * 1.2, '#ff3030', e); for (let i = 1; i < n; i++) { const a = R() * 6.283, r = 40 + R() * 50; telegraph(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r * 0.7, 28, 1.15 + i * 0.15, dmg * 1.05, '#ff3030', e); } castPose(e, 0.6); e.act = { k, t: 0, dur: 0.9 }; sfx('alpha'); }
       if (k === 'charge') { e.act = { k, t: 0 }; sfx('ultCharge'); }
-      if (k === 'rain') { const p = st.player; for (let i = 0; i < 7; i++) { const a = R() * 6.283, r = R() * 90; telegraph(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r * 0.7, 22, 0.9 + i * 0.12, dmg * 1.1, tcol(e.d.types[0]), e); } castPose(e, 0.6); e.act = { k, t: 0, dur: 1 }; }
+      if (k === 'rain') { const p = st.player; for (let i = 0; i < 7; i++) { const a = R() * 6.283, r = R() * 90; telegraph(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r * 0.7, 22, 0.9 + i * 0.12, dmg * 0.9, tcol(e.d.types[0]), e); } castPose(e, 0.6); e.act = { k, t: 0, dur: 1 }; }
       e.aiT = 2.3 + R() * 0.8; return true;
     }
-    return false; // entre ataques: se acerca despacio y golpea cuerpo a cuerpo
+    // entre ataques: se acerca despacio y, de cerca, da un zarpazo avisado con un círculo rojo (nunca golpea sin aviso)
+    e.meleeCd = (e.meleeCd || 0) - dt;
+    if (d < e.r + 18 && e.meleeCd <= 0) { e.meleeCd = 1.9 / sp; telegraph(e.x + (tg.x - e.x) * 0.4, e.y + (tg.y - e.y) * 0.4, e.r + 12, 0.75, baseDmg(e) * 0.85, '#ff5030', e); castPose(e, 0.5); e.act = { k: 'swipe', t: 0, dur: 0.8 }; e.dir = A().dirOf(tg.x - e.x, tg.y - e.y); return true; }
+    if (d > e.r + 8) { const v = e.spd * dt; A().tryMove(e, (tg.x - e.x) / d * v, (tg.y - e.y) / d * v); e.moving = true; e.dir = A().dirOf(tg.x - e.x, tg.y - e.y); } else e.moving = false;
+    return true;
   }
   // equipo del rival: defiende a su entrenador y ataca con sus habilidades
   function rivalAI(e, dt, st, tg, d) {
@@ -7319,7 +7334,7 @@ body.boss-fight #cb-wave{display:none!important}
     const ax = (q.x + 0.5) * T, ay = (q.y + 0.5) * T; let bx = p.x, by = p.y - 70;
     for (let k = 0; k < 30; k++) { const a = Math.atan2(ay - p.y, ax - p.x) + (k ? (R() - 0.5) * 2.4 : 0), r = 70 + R() * 30, x = p.x + Math.cos(a) * r, y = p.y + Math.sin(a) * r; if (G.GAME.canStand(x, y) && G.GAME.canStand(x + 10, y) && G.GAME.canStand(x - 10, y)) { bx = x; by = y; break; } }
     G.COMBAT.clearWild(); G.COMBAT.pauseWaves(true); tele = [];
-    const e = G.COMBAT.makeEnemy(n, lvl, bx, by, { boss: true, ai: 'boss', size: legend ? 2.9 : 2.6, hpMul: 22 * (1 + 0.25 * statue) * (1 + (round - 1) * 0.12) * (legend ? 1.5 : 1) * Math.max(1, tm.length / 3), spd: 21, dmgMul: 1.8 * (1 + 0.12 * statue), tag: 'boss' });
+    const e = G.COMBAT.makeEnemy(n, lvl, bx, by, { boss: true, ai: 'boss', size: legend ? 2.9 : 2.6, hpMul: 22 * (1 + 0.25 * statue) * (1 + (round - 1) * 0.12) * (legend ? 1.5 : 1) * Math.max(1, tm.length / 3), spd: 21, dmgMul: 1.4 * (1 + 0.12 * statue), tag: 'boss' });
     e.introT = 2.6; e.phase = 1; e.statue = statue; e.legend = legend; e.r = Math.max(e.r, 16);
     fight = { e, q, map }; lagHP = 1; q.state = 'lucha';
     document.body.classList.add('boss-fight'); flash('#ffffff'); shake(12); sfx('alpha'); setTimeout(() => sfx('wave'), 400);
@@ -7450,6 +7465,10 @@ body.boss-fight #cb-wave{display:none!important}
     if (e.shiny && !e.dead || e.shiny && e.downed) { for (let i = 0; i < 2; i++) if (Math.sin(t * 5 + i * 2 + e.ph) > 0.6) { ctx.fillStyle = '#fff8c0'; const sx = Math.round(x + Math.sin(t * 3 + i * 3) * e.sz * 0.4), sy = Math.round(y - e.sz * 0.5 + Math.cos(t * 2.3 + i) * e.sz * 0.3); ctx.fillRect(sx, sy - 2, 1, 5); ctx.fillRect(sx - 2, sy, 5, 1); } }
   };
   BS.drawGround = function (ctx, st, cx, cy, t) {
+    if (fight && fight.e.act && fight.e.act.k === 'charge' && fight.e.act.t < 0.95 && fight.e.act.dir !== undefined) { // aviso de la embestida: el carril por donde va a pasar
+      const e = fight.e, a = e.act, len = e.spd * 4.2 * 0.75 + e.r * 2, k = a.t / 0.95; ctx.save(); ctx.translate(e.x - cx, e.y - cy); ctx.rotate(a.dir);
+      ctx.globalAlpha = 0.18 + k * 0.3; ctx.fillStyle = '#ff3030'; ctx.fillRect(0, -e.r, len, e.r * 2); ctx.globalAlpha = 0.9; ctx.strokeStyle = '#ff3030'; ctx.lineWidth = 1; ctx.strokeRect(0, -e.r, len, e.r * 2);
+      ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.8; ctx.fillRect(0, -e.r, len * k, 1); ctx.fillRect(0, e.r - 1, len * k, 1); ctx.restore(); }
     for (const z of tele) { // avisos de golpe en área
       const x = z.x - cx, y = z.y - cy, k = z.t / z.dur;
       ctx.save(); ctx.globalAlpha = 0.18 + k * 0.32; ctx.fillStyle = z.col; ctx.beginPath(); ctx.ellipse(x, y, z.r, z.r * 0.6, 0, 0, 7); ctx.fill();
