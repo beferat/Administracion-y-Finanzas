@@ -7920,7 +7920,7 @@ body.boss-fight #cb-wave{display:none!important}
   const NAME_OK = "newData.child('name').isString() && newData.child('name').val().length <= 16";
   ON.RULES = JSON.stringify({ rules: {
     users: { $uid: { '.read': 'auth != null && auth.uid === $uid', '.write': 'auth != null && auth.uid === $uid' } },
-    profiles: { '.read': 'auth != null', $uid: { '.write': 'auth != null && auth.uid === $uid', '.validate': "newData.hasChildren(['name','code']) && " + NAME_OK } },
+    profiles: { '.read': 'auth != null', $uid: { '.write': 'auth != null && auth.uid === $uid', '.validate': "newData.hasChildren(['name','code']) && " + NAME_OK + " && (!newData.child('titulo').exists() || newData.child('titulo').val() !== 'Admin' || root.child('admins').child($uid).val() === true)" } },
     codes: { $code: { '.read': 'auth != null', '.write': 'auth != null && (!data.exists() || data.val() === auth.uid) && newData.val() === auth.uid' } },
     requests: { $to: { '.read': 'auth != null && auth.uid === $to', $from: { '.write': 'auth != null && (auth.uid === $to || (auth.uid === $from && $from !== $to))', '.validate': "!newData.exists() || (newData.hasChildren(['name','t']) && " + NAME_OK + ')' } } },
     friends: { $uid: { '.read': 'auth != null && auth.uid === $uid', $friend: { '.write': "auth != null && (auth.uid === $uid || (auth.uid === $friend && (!newData.exists() || root.child('requests').child(auth.uid).child($uid).exists())))", '.validate': '!newData.exists() || newData.val() === true' } } },
@@ -9193,7 +9193,7 @@ body.boss-fight #cb-wave{display:none!important}
     if (!ON.configured() || !ON.user() || !localStorage.getItem('rg1_trainer')) return;
     try {
       if (!code) code = await ON.ensureCode(); const p = P();
-      await ON.updateProfile({ name: String(G.TRAINER.name || 'Entrenador').slice(0, 16), code, app: JSON.stringify(G.TRAINER.app).slice(0, 1800), dex: new Set((p.capturados || []).concat(p.coleccion || [])).size, best: (p.ranking || []).reduce((m, r) => Math.max(m, r.ronda || 0), 0), team: (p.equipo || []).slice(0, 6), titulo: p.titulo || '' });
+      await ON.updateProfile({ name: String(G.TRAINER.name || 'Entrenador').slice(0, 16), code, app: JSON.stringify(G.TRAINER.app).slice(0, 1800), dex: new Set((p.capturados || []).concat(p.coleccion || [])).size, best: (p.ranking || []).reduce((m, r) => Math.max(m, r.ronda || 0), 0), team: (p.equipo || []).slice(0, 6), titulo: G.LOGROS ? G.LOGROS.title() : '' });
     } catch (e) { }
   }
   function startBeat() { clearInterval(beat); heartbeat(); beat = setInterval(heartbeat, 60000); }
@@ -9414,7 +9414,7 @@ body.boss-fight #cb-wave{display:none!important}
   setTimeout(startWatch, 1500);
 
   // ---------------- administrador ----------------
-  async function checkAdmin() { const was = isAdmin; isAdmin = await ON.isAdmin(); const b = $('#mm-admin'); if (b) b.style.display = isAdmin ? '' : 'none'; if (isAdmin && !was) startWatch(); }
+  async function checkAdmin() { const was = isAdmin; isAdmin = await ON.isAdmin(); NW.adminChecked = !!ON.user(); const b = $('#mm-admin'); if (b) b.style.display = isAdmin ? '' : 'none'; if (isAdmin && !was) startWatch(); }
   setTimeout(checkAdmin, 2500); setInterval(checkAdmin, 30000);
   const prevAuth = ON.onAuth; ON.onAuth = a => { if (prevAuth) prevAuth(a); setTimeout(checkAdmin, 500); };
   async function adminPanel(box) {
@@ -9480,10 +9480,18 @@ body.boss-fight #cb-wave{display:none!important}
     'Afortunado': { c: '#f0a8ff', how: 'Logro: haz 20 tiradas en el gacha.' },
     'Jugón': { c: '#5ac85a', how: 'Logro: juega 10 minijuegos.' },
     'Constante': { c: '#5ad0f0', how: 'Logro: completa 10 misiones diarias.' },
+    'Admin': { cls: 'admin', how: 'Solo para los administradores del juego.', hidden: true },
   };
   LG.TITLES = TITLES;
   LG.titleHTML = (t, small) => { if (!t) return ''; const d = TITLES[t] || { c: '#d8d0e8' }; return `<span class="ttl ${d.cls || ''}${small ? ' sm' : ''}" style="--c:${d.c || '#fff'}">${esc(t)}</span>`; };
-  LG.title = () => P().titulo || 'Entrenador novato';
+  const isAdmin = () => !!(G.NEWS && G.NEWS.isAdmin && G.NEWS.isAdmin());
+  LG.title = () => { const t = P().titulo || 'Entrenador novato'; return t === 'Admin' && !isAdmin() ? 'Entrenador novato' : t; };
+  // título «Admin»: se da solo a quien la base de datos reconoce como administrador, y se quita si deja de serlo
+  setInterval(() => {
+    const p = P(); if (!p) return; p.titulos = p.titulos || []; const has = p.titulos.includes('Admin');
+    if (isAdmin() && !has) { p.titulos.push('Admin'); if (!p.adminTitle) { p.adminTitle = true; p.titulo = 'Admin'; note('👑 ¡Eres administrador!', 'Nuevo título: Admin'); } G.PROG.save(); LG.showTitle(); }
+    else if (!isAdmin() && has && G.NEWS && G.NEWS.adminChecked) { p.titulos = p.titulos.filter(t => t !== 'Admin'); if (p.titulo === 'Admin') p.titulo = ''; G.PROG.save(); LG.showTitle(); }
+  }, 3000);
 
   // ---------------- estadísticas ----------------
   const ST = () => { const p = P(); p.stats = p.stats || {}; return p.stats; };
@@ -9584,7 +9592,7 @@ body.boss-fight #cb-wave{display:none!important}
         return `<div class="lg-card ${d ? 'done' : r ? 'ready' : ''}"><div class="lg-inf"><b>${d ? '🏆 ' : ''}${esc(a.n)}</b><small>${esc(a.d)}</small><div class="lg-bar"><i style="width:${v / a.need * 100}%"></i></div><small>${v.toLocaleString('es-ES')} / ${a.need.toLocaleString('es-ES')}</small></div><div class="lg-rew">${rewHTML(a.rew)}</div>${d ? '<span class="lg-ok">✓</span>' : `<button class="cta" data-a="${a.id}" ${r ? '' : 'disabled'}>Recoger</button>`}</div>`; }).join('') + '</div>';
     } else {
       const own = ['Entrenador novato'].concat(p.titulos || []), cur = LG.title();
-      html = `<p class="hint">El título que elijas sale bajo tu nombre en el menú, en la partida y en la lista de amigos.</p><div class="lg-titles">` + Object.keys(TITLES).map(t => { const has = own.includes(t);
+      html = `<p class="hint">El título que elijas sale bajo tu nombre en el menú, en la partida y en la lista de amigos.</p><div class="lg-titles">` + Object.keys(TITLES).filter(t => !TITLES[t].hidden || own.includes(t)).map(t => { const has = own.includes(t);
         return `<div class="lg-title ${has ? '' : 'locked'} ${t === cur ? 'sel' : ''}">${LG.titleHTML(t)}<small>${has ? (t === cur ? 'Equipado' : '') : esc(TITLES[t].how)}</small>${has && t !== cur ? `<button class="ghost" data-t2="${esc(t)}">Equipar</button>` : ''}</div>`; }).join('') + '</div>';
     }
     body.innerHTML = tabs + `<div class="lg-body">${html}</div>`;
@@ -9662,6 +9670,8 @@ body.boss-fight #cb-wave{display:none!important}
 .ttl{display:inline-block;font-family:'Press Start 2P',monospace;font-size:9px;line-height:1;padding:3px 5px 2px;border-radius:3px;color:var(--c);background:rgba(0,0,0,.45);border:1px solid color-mix(in srgb,var(--c) 60%,#000);text-shadow:1px 1px 0 #000;white-space:nowrap}
 .ttl.sm{font-size:8px;padding:2px 4px 1px}
 .ttl.rainbow{color:#fff;background:linear-gradient(90deg,#ff4a6a,#ffb040,#ffe040,#5ae86a,#4ab0ff,#b070ff,#ff4a6a);background-size:300% 100%;border-color:#fff;animation:ttlRb 3s linear infinite;text-shadow:1px 1px 0 #000,0 0 6px rgba(0,0,0,.6)}
+.ttl.admin{color:#ffe070;background:linear-gradient(90deg,#5a0a14,#c01828,#5a0a14);background-size:200% 100%;border-color:#ffd040;animation:ttlRb 2s linear infinite;text-shadow:1px 1px 0 #000,0 0 6px #ff4040;box-shadow:0 0 6px rgba(255,60,60,.7)}
+.ttl.admin::before{content:'👑 '}
 .ttl.gold{color:#3a2400;background:linear-gradient(180deg,#fff2a0,#f0c030 55%,#c08a10);border-color:#5a3a00;text-shadow:0 1px 0 rgba(255,255,255,.6)}
 .ttl.shiny{color:#3a2a08;background:linear-gradient(90deg,#ffe060,#fff8d0,#ffb0e8,#b0e8ff,#ffe060);background-size:300% 100%;animation:ttlRb 2.5s linear infinite;border-color:#fff}
 @keyframes ttlRb{to{background-position:300% 0}}
@@ -10573,131 +10583,4 @@ body.boss-fight #cb-wave{display:none!important}
     const tx = Math.floor(wx / T), ty = Math.floor(wy / T);
     if (!st.revealAll && !m.explored[ty * m.W + tx]) { toast('Zona sin explorar'); return; }
     let best = null, bd = 44; for (const q of m.pois) { if (!q.found && !st.revealAll) continue; const d = Math.hypot((q.x + 0.5) * T - wx, (q.y + 0.5) * T - wy); if (d < bd) { bd = d; best = q; } }
-    if (best) setWaypoint((best.x + 0.5) * T, (best.y + 0.5) * T, POI_NAME[best.kind]); else setWaypoint(wx, wy, 'Punto marcado');
-    drawFullMap();
-  });
-
-  // ---------------- niebla de exploración ----------------
-  const REVEAL = 9;
-  function initFog(m) {
-    if (m.fogCv) return;
-    m.explored = new Uint8Array(m.W * m.H); m.fogCv = G.makeCanvas(m.W, m.H); m.fogCtx = m.fogCv.getContext('2d');
-    m.fogImg = m.fogCtx.createImageData(m.W, m.H); m.fogA = new Uint8ClampedArray(m.W * m.H).fill(255);
-    const d = m.fogImg.data; for (let i = 0; i < m.W * m.H; i++) { d[i * 4] = 11; d[i * 4 + 1] = 8; d[i * 4 + 2] = 20; d[i * 4 + 3] = 255; }
-    m.fogCtx.putImageData(m.fogImg, 0, 0);
-  }
-  function revealAround() {
-    const m = st.map, p = st.player, tx = Math.floor(p.x / T), ty = Math.floor(p.y / T);
-    if (tx === p.tx && ty === p.ty) return; p.tx = tx; p.ty = ty;
-    const R = REVEAL, d = m.fogImg.data; let changed = false;
-    for (let y = ty - R - 2; y <= ty + R + 2; y++) for (let x = tx - R - 2; x <= tx + R + 2; x++) {
-      if (!m.in(x, y)) continue; const i = y * m.W + x; const dist = Math.hypot(x - tx, y - ty);
-      const a = Math.max(0, Math.min(255, Math.round((dist - (R - 2.5)) / 3 * 255)));
-      if (a < m.fogA[i]) { m.fogA[i] = a; d[i * 4 + 3] = a; changed = true; if (a < 140) m.explored[i] = 1; }
-    }
-    if (changed) m.fogCtx.putImageData(m.fogImg, 0, 0);
-    for (const q of m.pois) if (!q.found && m.explored[q.y * m.W + q.x]) { q.found = true; toast('Descubierto: ' + POI_NAME[q.kind]); }
-  }
-
-  // ---------------- interacción con máquinas ----------------
-  function nearMachine() {
-    const p = st.player; let best = null, bd = 1e9;
-    for (const q of st.map.pois) { if (!q.machine) continue; const big = q.kind === 'arena' || q.kind === 'merchant'; const d = Math.hypot((q.x + 0.5) * T - p.x, (q.y + 0.5) * T + (big ? 18 : 6) - p.y); if (d < (big ? 40 : 30) && d < bd) { bd = d; best = q; } }
-    return best;
-  }
-  function interact() {
-    const q = nearMachine(); if (!q) return;
-    if (q.kind !== 'tele') return G.RUN.interact(q, st);
-    if (q.link && st.player.teleCd <= 0) {
-      const l = q.link; const fl = $('#flash'); fl.classList.remove('on'); void fl.offsetWidth; fl.classList.add('on');
-      Object.assign(st.player, { x: (l.x + 0.5) * T, y: (l.y + 0.5) * T + 14, vx: 0, vy: 0, teleCd: 1.2, tx: -1, ty: -1 });
-      st.cam.x = st.player.x - st.vw / 2; st.cam.y = st.player.y - st.vh / 2; clampCam(); l.found = true; toast('Teletransportado');
-    }
-  }
-  let lastPill = '';
-  function updateTerrainPill(t) {
-    const el = $('#terrain'); let txt = '';
-    if (t.label && t.speed !== 1) txt = `${t.label} · ${Math.round(t.speed * 100)}% velocidad`; else if (t.slip) txt = t.label;
-    if (t.toxic) txt += ' · tóxico';
-    if (txt === lastPill) return; lastPill = txt; el.textContent = txt; el.classList.toggle('on', !!txt);
-  }
-  // flecha hacia el destino cuando está fuera de pantalla
-  function updateWaypointArrow() {
-    const el = $('#wp'), w = st.waypoint; if (!w) { el.classList.remove('on'); return; }
-    const sx = (w.x - st.cam.x) * st.zoom, sy = (w.y - 10 - st.cam.y) * st.zoom, M = 80;
-    const dist = Math.round(Math.hypot(w.x - st.player.x, w.y - st.player.y) / T);
-    const inside = sx > M && sy > M && sx < innerWidth - M && sy < innerHeight - M;
-    if (inside) { el.classList.remove('on'); return; }
-    const cx = innerWidth / 2, cy = innerHeight / 2, a = Math.atan2(sy - cy, sx - cx);
-    const k = Math.min((cx - M) / Math.abs(Math.cos(a) || 1e-6), (cy - M) / Math.abs(Math.sin(a) || 1e-6));
-    el.style.left = (cx + Math.cos(a) * k) + 'px'; el.style.top = (cy + Math.sin(a) * k) + 'px';
-    el.querySelector('.wp-arrow').style.transform = `rotate(${a}rad)`; el.querySelector('.wp-txt').textContent = `${w.name} · ${dist} m`;
-    el.classList.add('on');
-  }
-
-  // menú de biomas / elección
-  let zoneFilter = 0;
-  function buildMenu() {
-    const grid = $('#cards'); grid.innerHTML = '';
-    B.forEach((b, i) => {
-      const card = document.createElement('button'); card.className = 'card'; card.dataset.i = i;
-      card.innerHTML = `<canvas width="96" height="96"></canvas><div class="c-body"><div class="c-name">${b.name}</div><div class="c-types">${b.types.map(badge).join('')}</div>
-        <div class="c-row"><span>Zonas</span><b>${b.zones[0]}–${b.zones[1]}</b></div><div class="c-row"><span>Jefe</span><b>${b.boss}</b></div>
-        <div class="c-row"><span>Rara</span><b>${b.rare}</b></div><div class="c-row"><span>Extra</span><b>${b.reward}</b></div><p>${b.desc}</p></div>`;
-      card.onclick = () => { $('#menu').classList.remove('on'); loadBiome(i, true); };
-      grid.appendChild(card);
-    });
-    applyZone();
-  }
-  function applyZone() {
-    document.querySelectorAll('.zbtn').forEach(b => b.classList.toggle('sel', +b.dataset.z === zoneFilter));
-    document.querySelectorAll('.card').forEach(c => { const b = B[+c.dataset.i]; const ok = !zoneFilter || (zoneFilter >= b.zones[0] && zoneFilter <= b.zones[1]); c.classList.toggle('off', !ok); c.classList.remove('pick'); });
-  }
-  function drawThree() {
-    if (!zoneFilter) { zoneFilter = 1 + Math.floor(Math.random() * 5); }
-    applyZone();
-    const ok = [...document.querySelectorAll('.card:not(.off)')]; ok.sort(() => Math.random() - 0.5);
-    ok.slice(0, 3).forEach(c => c.classList.add('pick'));
-    $('#menu-note').textContent = `Zona ${zoneFilter}: elige uno de los 3 biomas sorteados (o cualquiera para explorarlo).`;
-  }
-  function refreshThumb(i) {
-    const b = B[i]; const k = b.id + ':' + seedOf(b); const m = st.maps[k]; if (!m) return;
-    if (!m.mini) m.mini = G.minimap(m);
-    const c = document.querySelector(`.card[data-i="${i}"] canvas`); if (!c) return; const x = c.getContext('2d'); x.imageSmoothingEnabled = false; x.drawImage(m.mini, 0, 0, 96, 96);
-  }
-  function genThumbs(i) { if (i >= B.length) return; try { getMap(B[i]); refreshThumb(i); } catch (e) { console.error(e); } setTimeout(() => genThumbs(i + 1), 30); }
-  function toggleMenu() { const el = $('#menu'); el.classList.toggle('on'); if (el.classList.contains('on')) $('#mapview').classList.remove('on'); }
-  document.querySelectorAll('.zbtn').forEach(b => b.onclick = () => { zoneFilter = +b.dataset.z; applyZone(); $('#menu-note').textContent = zoneFilter ? `Biomas disponibles en la zona ${zoneFilter}.` : 'Todos los biomas.'; });
-  $('#btn-draw').onclick = drawThree;
-  $('#btn-menu').onclick = toggleMenu; $('#btn-map').onclick = toggleMap; $('#btn-seed').onclick = () => loadBiome(st.idx, true);
-  $('#btn-light').onclick = () => { st.noDark = !st.noDark; toast(st.noDark ? 'Oscuridad desactivada (vista de diseño)' : 'Oscuridad activada'); };
-  $('#menu-close').onclick = () => $('#menu').classList.remove('on'); $('#map-close').onclick = () => $('#mapview').classList.remove('on');
-  $('#mapview').addEventListener('click', e => { if (e.target.id === 'mapview') $('#mapview').classList.remove('on'); });
-
-  // ---------------- bucle ----------------
-  let last = performance.now(), mmT = 0;
-  function frame(now) {
-    requestAnimationFrame(frame); // primero: un error puntual nunca debe detener el juego
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (!st.ready) return;
-    try { st.time += dt; update(dt); render(); updateWaypointArrow(); mmT += dt; if (mmT > 0.12) { mmT = 0; drawMinimap(); } }
-    catch (e) { if (!frame.warned) { frame.warned = true; console.error(e); } }
-  }
-  buildMenu();
-  const hashIdx = B.findIndex(b => '#' + b.id === location.hash);
-  // API para el menú principal
-  G.GAME = {
-    st, loadBiome,
-    canStand, solidAt, setZoom: z => setZoom(z), zoom: () => st.zoom, miniIconURL: k => miniIcon(k).toDataURL(), setWaypoint: (x, y, n) => setWaypoint(x, y, n), clearWaypoint: () => { st.waypoint = null; },
-    startRun(i) { st.mode = 'game'; st.ready = false; document.body.classList.remove('in-menu'); st.keys = {}; G.RUN.newRun(); loadBiome(i, true); },
-    toMenu() { if (G.RUN.on) G.RUN.end('salir'); G.RUN.closePanel(); st.mode = 'menu'; document.body.classList.add('in-menu'); st.waypoint = null; ['#menu', '#mapview'].forEach(s => $(s).classList.remove('on')); },
-  };
-  $('#btn-exit').onclick = () => { if (G.RUN.on && G.PAUSE) G.PAUSE.open(); else if (confirm('¿Salir y volver al menú?')) G.MENU.show(); };
-  if (hashIdx >= 0) { G.GAME.startRun(hashIdx); setTimeout(() => $('#fade').classList.remove('on'), 300); } else if (G.MENU) G.MENU.start(); else loadBiome(0);
-  setTimeout(() => genThumbs(0), 2500);
-  requestAnimationFrame(frame);
-})();
-
-</script>
-</body>
-</html>
+    if (best) setWaypoint((best.x + 0.5) * T, (best.y + 0.5) * T, POI_NAME[bes
