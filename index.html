@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PokeRush</title>
+<script>window.POKERUSH_BUILD = '98ab6b4a2ceb'; /* lo rellena build.py: sirve para avisar de actualizaciones */</script>
 <script>
 /* =====================================================================
    RANKING ONLINE DE LOS MINIJUEGOS (Firebase, gratis)
@@ -7864,7 +7865,11 @@ body.boss-fight #cb-wave{display:none!important}
     for (let salt = 0; salt < 6; salt++) { const code = codeFor(uid, salt || ''), owner = await get('codes/' + code); if (!owner || owner === uid) { await put('codes/' + code, uid); return code; } }
     throw new Error('No se pudo crear tu código de amigo');
   };
-  ON.allProfiles = () => get('profiles'); // para el rival fantasma (equipos reales de otros jugadores)
+  ON.allProfiles = () => get('profiles'); // para el rival fantasma y la lista de jugadores del administrador
+  // regalos del administrador: los escribe el admin en admingifts/<jugador>; el jugador los lee y los borra al abrirlos
+  ON.sendAdminGift = (uid, g) => req('admingifts/' + uid + '.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ t: Date.now(), by: ON.uid() }, g)) });
+  ON.myAdminGifts = async () => (await get('admingifts/' + ON.uid())) || {};
+  ON.deleteAdminGift = id => del('admingifts/' + ON.uid() + '/' + id);
   ON.updateProfile = async function (data) { await patch('profiles/' + ON.uid(), Object.assign({}, data, { lastSeen: Date.now() })); };
   ON.profile = uid => get('profiles/' + uid);
   ON.uidFromCode = async code => (await get('codes/' + String(code).toUpperCase().replace(/[^A-Z0-9]/g, ''))) || null;
@@ -7926,6 +7931,7 @@ body.boss-fight #cb-wave{display:none!important}
     friends: { $uid: { '.read': 'auth != null && auth.uid === $uid', $friend: { '.write': "auth != null && (auth.uid === $uid || (auth.uid === $friend && (!newData.exists() || root.child('requests').child(auth.uid).child($uid).exists())))", '.validate': '!newData.exists() || newData.val() === true' } } },
     gifts: { $to: { '.read': 'auth != null && auth.uid === $to', $from: { '.write': "auth != null && (auth.uid === $to || (auth.uid === $from && root.child('friends').child($from).child($to).exists()))" } } },
     admins: { $uid: { '.read': 'auth != null && auth.uid === $uid', '.write': false } },
+    admingifts: { $uid: { '.read': 'auth != null && auth.uid === $uid', $gid: { '.write': "auth != null && (root.child('admins').child(auth.uid).val() === true || (auth.uid === $uid && !newData.exists()))" } } },
     announcements: { '.read': true, $id: { '.write': "auth != null && root.child('admins').child(auth.uid).val() === true", '.validate': "!newData.exists() || (newData.hasChildren(['title','text','t']) && newData.child('title').isString() && newData.child('title').val().length <= 80 && newData.child('text').isString() && newData.child('text').val().length <= 800)" } },
     suggestions: { '.read': "auth != null && root.child('admins').child(auth.uid).val() === true", $id: { '.write': "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || root.child('admins').child(auth.uid).val() === true)", '.validate': "!newData.exists() || (newData.hasChildren(['x','uid','t']) && newData.child('x').isString() && newData.child('x').val().length <= 2000)" } },
     scores: { $week: { $game: { '.read': 'auth != null', '.indexOn': ['score'], $uid: { '.write': 'auth != null && auth.uid === $uid', '.validate': "newData.hasChildren(['name','score','t']) && newData.child('score').isNumber() && newData.child('score').val() >= 0 && newData.child('score').val() < 10000000 && " + NAME_OK } } } },
@@ -9311,6 +9317,10 @@ body.boss-fight #cb-wave{display:none!important}
   // ---------------- historial de versiones (la primera de la lista es la actual) ----------------
   // Para una actualización nueva basta con añadir una entrada arriba: a todo el mundo le saldrá al entrar.
   const VERSIONS = [
+    { v: '1.6', fecha: '10 de noviembre de 2026', t: 'Avisos de actualización y regalos', items: [
+      ['🔄', 'Aviso de actualización', 'Si sale una versión nueva mientras tienes el juego abierto, aparece una ventana para recargar la página. Si estás en plena partida, solo un aviso pequeño para no cortarla.'],
+      ['🎁', 'Regalos del administrador', 'El creador del juego puede enviarte regalos: RushCoins, Poké Balls, Pokémon (¡incluso shiny o legendarios!) y títulos exclusivos. Te aparecerán al entrar para que los abras.'],
+    ] },
     { v: '1.5', fecha: '9 de noviembre de 2026', t: 'Tutorial de la Profesora Vega', items: [
       ['🎓', 'Tutorial', 'Después de elegir tu inicial, la Profesora Vega te enseña en su pizarra los controles, todas las estructuras de los biomas y cómo avanzar: misiones, portal, jefes, las 5 zonas, capturas y mejoras.'],
       ['🔁', 'Verlo otra vez', 'Puedes repetir el tutorial cuando quieras desde Ajustes → Tutorial.'],
@@ -9424,7 +9434,9 @@ body.boss-fight #cb-wave{display:none!important}
       <label>Duración <select id="ad-dur"><option value="0">Sin caducidad</option><option value="1">1 hora</option><option value="6">6 horas</option><option value="24">1 día</option><option value="72">3 días</option><option value="168">1 semana</option></select></label>
       <button class="cta" id="ad-post">Publicar ahora</button><span id="ad-msg"></span></div>
       <h3>Anuncios activos</h3><div class="ad-list">${annList().map(a => `<div class="nw-ann" style="--c:${(TYPE[a.type] || TYPE.info)[1]}"><span class="tg">${(TYPE[a.type] || TYPE.info)[0]}</span><b>${esc(a.title)}</b><small>${new Date(a.t).toLocaleString('es-ES')}${a.until ? ' · hasta ' + new Date(a.until).toLocaleString('es-ES') : ''}</small><p>${esc(a.text)}</p><button class="ghost" data-del="${a.id}">Borrar</button></div>`).join('') || '<p class="hint">No hay anuncios activos.</p>'}</div>
+      <h3>🎁 Hacer un regalo</h3><div id="ad-gift"></div>
       <h3>Sugerencias recibidas</h3><div class="ad-sug">Cargando…</div>`;
+    if (G.ADMGIFT) G.ADMGIFT.render(box.querySelector('#ad-gift'));
     const m = s => { box.querySelector('#ad-msg').textContent = s; };
     box.querySelector('#ad-post').onclick = async () => {
       const title = box.querySelector('#ad-title').value.trim(), text = box.querySelector('#ad-text').value.trim(), h = +box.querySelector('#ad-dur').value; if (!title || !text) return m('Escribe título y texto.');
@@ -9483,7 +9495,7 @@ body.boss-fight #cb-wave{display:none!important}
     'Admin': { cls: 'admin', how: 'Solo para los administradores del juego.', hidden: true },
   };
   LG.TITLES = TITLES;
-  LG.titleHTML = (t, small) => { if (!t) return ''; const d = TITLES[t] || { c: '#d8d0e8' }; return `<span class="ttl ${d.cls || ''}${small ? ' sm' : ''}" style="--c:${d.c || '#fff'}">${esc(t)}</span>`; };
+  LG.titleHTML = (t, small) => { if (!t) return ''; const d = TITLES[t] || { cls: 'gift' }; return `<span class="ttl ${d.cls || ''}${small ? ' sm' : ''}" style="--c:${d.c || '#fff'}">${esc(t)}</span>`; };
   const isAdmin = () => !!(G.NEWS && G.NEWS.isAdmin && G.NEWS.isAdmin());
   LG.title = () => { const t = P().titulo || 'Entrenador novato'; return t === 'Admin' && !isAdmin() ? 'Entrenador novato' : t; };
   // título «Admin»: se da solo a quien la base de datos reconoce como administrador, y se quita si deja de serlo
@@ -9592,8 +9604,8 @@ body.boss-fight #cb-wave{display:none!important}
         return `<div class="lg-card ${d ? 'done' : r ? 'ready' : ''}"><div class="lg-inf"><b>${d ? '🏆 ' : ''}${esc(a.n)}</b><small>${esc(a.d)}</small><div class="lg-bar"><i style="width:${v / a.need * 100}%"></i></div><small>${v.toLocaleString('es-ES')} / ${a.need.toLocaleString('es-ES')}</small></div><div class="lg-rew">${rewHTML(a.rew)}</div>${d ? '<span class="lg-ok">✓</span>' : `<button class="cta" data-a="${a.id}" ${r ? '' : 'disabled'}>Recoger</button>`}</div>`; }).join('') + '</div>';
     } else {
       const own = ['Entrenador novato'].concat(p.titulos || []), cur = LG.title();
-      html = `<p class="hint">El título que elijas sale bajo tu nombre en el menú, en la partida y en la lista de amigos.</p><div class="lg-titles">` + Object.keys(TITLES).filter(t => !TITLES[t].hidden || own.includes(t)).map(t => { const has = own.includes(t);
-        return `<div class="lg-title ${has ? '' : 'locked'} ${t === cur ? 'sel' : ''}">${LG.titleHTML(t)}<small>${has ? (t === cur ? 'Equipado' : '') : esc(TITLES[t].how)}</small>${has && t !== cur ? `<button class="ghost" data-t2="${esc(t)}">Equipar</button>` : ''}</div>`; }).join('') + '</div>';
+      html = `<p class="hint">El título que elijas sale bajo tu nombre en el menú, en la partida y en la lista de amigos.</p><div class="lg-titles">` + Object.keys(TITLES).filter(t => !TITLES[t].hidden || own.includes(t)).concat(own.filter(t => !TITLES[t])).map(t => { const has = own.includes(t);
+        return `<div class="lg-title ${has ? '' : 'locked'} ${t === cur ? 'sel' : ''}">${LG.titleHTML(t)}<small>${has ? (t === cur ? 'Equipado' : TITLES[t] ? '' : 'Regalo del administrador') : esc(TITLES[t].how)}</small>${has && t !== cur ? `<button class="ghost" data-t2="${esc(t)}">Equipar</button>` : ''}</div>`; }).join('') + '</div>';
     }
     body.innerHTML = tabs + `<div class="lg-body">${html}</div>`;
     body.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { tab = b.dataset.t; LG.render(body); });
@@ -9614,6 +9626,13 @@ body.boss-fight #cb-wave{display:none!important}
     if (!LG.betaActive()) { if (e) e.remove(); return; }
     if (!e) { e = document.createElement('div'); e.id = 'beta-tag'; e.innerHTML = '<i>β</i> Juego en estado Beta'; logo.appendChild(e); }
   }
+  // ¿se puede mostrar ahora una ventana de regalo? (en el menú, sin nada abierto y tras lo obligatorio)
+  LG.canPopup = function () {
+    const p = P(); if (giftOpen || !p.inicial || !document.body.classList.contains('in-menu')) return false;
+    try { if (!localStorage.getItem('rg1_trainer')) return false; } catch (e) { return false; }
+    if (document.querySelector('.overlay.on, #mm-panel.on, #starter.on, #login.on') || (G.EDITOR && G.EDITOR.isOpen()) || (G.INTRO && G.INTRO.isOpen())) return false;
+    return true;
+  };
   function canGift() {
     const p = P(); if (!LG.betaActive() || p.betaGift || sessionStorage.getItem('rg1_nogift') || !p.inicial || !document.body.classList.contains('in-menu')) return false;
     try { if (!localStorage.getItem('rg1_trainer')) return false; } catch (e) { return false; }
@@ -9621,8 +9640,13 @@ body.boss-fight #cb-wave{display:none!important}
     return true;
   }
   let giftOpen = false;
-  function openGift() {
-    build(); giftOpen = true; const el = $('#beta-gift'); el.classList.add('on'); const cv = el.querySelector('canvas'), x = cv.getContext('2d'); x.imageSmoothingEnabled = false;
+  const BETA_GIFT = () => ({ title: 'Gracias por probar el juego,<br>toma una recompensa',
+    rewards: `<div class="it">Título: <span class="ttl rainbow">BetaTester</span></div><div class="it"><img src="${G.RUN.coinURL()}"> 500 RushCoins</div><div class="it"><img src="${G.RUN.icon('ball').toDataURL()}"> 20 Poké Balls</div>`,
+    onOpen: () => { const p = P(); p.betaGift = true; p.titulos = p.titulos || []; if (!p.titulos.includes('BetaTester')) p.titulos.push('BetaTester'); p.titulo = 'BetaTester'; p.rushcoins = (p.rushcoins || 0) + 500; p.balls = (p.balls || 0) + 20; G.PROG.save(); } });
+  LG.giftBusy = () => giftOpen;
+  function openGift(opts) {
+    opts = opts || BETA_GIFT(); build(); giftOpen = true; const el = $('#beta-gift'); el.classList.add('on');
+    el.querySelector('h1').innerHTML = opts.title; const row = el.querySelector('.bg-rew .row'); row.innerHTML = opts.rewards; if (opts.after) opts.after(row); const cv = el.querySelector('canvas'), x = cv.getContext('2d'); x.imageSmoothingEnabled = false;
     const W = cv.width, H = cv.height, NEED = 6; let hits = 0, open = 0, shake = 0, glow = 0, burst = false, parts = [], T0 = performance.now(), last = T0;
     el.querySelector('.bg-rew').classList.remove('on'); el.querySelector('.bg-hint').textContent = 'Pulsa el regalo para abrirlo';
     const box = (cx, by, lid) => { // regalo pixel art (morado con lazo dorado)
@@ -9654,12 +9678,12 @@ body.boss-fight #cb-wave{display:none!important}
       for (let i = 0; i < 8 + hits * 3; i++) parts.push({ x: W / 2 + (Math.random() - 0.5) * 60, y: H * 0.78 - 40, vx: (Math.random() - 0.5) * 120, vy: -40 - Math.random() * 90, l: 0, life: 1, c: ['#fff4a0', '#ffb0ff', '#a0f0ff', '#ffffff'][i % 4] });
       if (hits >= NEED) { burst = true; G.SFX && G.SFX.pop(); setTimeout(() => G.SFX && G.SFX.unlock(), 300);
         for (let i = 0; i < 90; i++) parts.push({ x: W / 2, y: H * 0.78 - 50, vx: (Math.random() - 0.5) * 340, vy: -60 - Math.random() * 220, l: 0, life: 1.6, c: ['#fff4a0', '#ffb0ff', '#a0f0ff', '#ffffff', '#ffd040'][i % 5] });
-        const p = P(); p.betaGift = true; p.titulos = p.titulos || []; if (!p.titulos.includes('BetaTester')) p.titulos.push('BetaTester'); p.titulo = 'BetaTester'; p.rushcoins = (p.rushcoins || 0) + 500; p.balls = (p.balls || 0) + 20; G.PROG.save();
+        try { opts.onOpen(); } catch (e) { console.error(e); }
         setTimeout(() => { el.querySelector('.bg-rew').classList.add('on'); if (G.MENU_updateTop) G.MENU_updateTop(); LG.showTitle(); }, 650); }
     };
-    el.querySelector('#bg-ok').onclick = () => { giftOpen = false; el.classList.remove('on'); };
+    el.querySelector('#bg-ok').onclick = () => { giftOpen = false; el.classList.remove('on'); if (opts.done) opts.done(); };
   }
-  LG.openGift = openGift; // (para pruebas)
+  LG.openGift = openGift; // también la usan los regalos del administrador
   setInterval(() => { betaTag(); if (!giftOpen && canGift()) setTimeout(() => { if (!giftOpen && canGift()) openGift(); }, 1500); }, 1500);
 
   // ---------------- interfaz ----------------
@@ -9672,6 +9696,7 @@ body.boss-fight #cb-wave{display:none!important}
 .ttl.rainbow{color:#fff;background:linear-gradient(90deg,#ff4a6a,#ffb040,#ffe040,#5ae86a,#4ab0ff,#b070ff,#ff4a6a);background-size:300% 100%;border-color:#fff;animation:ttlRb 3s linear infinite;text-shadow:1px 1px 0 #000,0 0 6px rgba(0,0,0,.6)}
 .ttl.admin{color:#ffe070;background:linear-gradient(90deg,#5a0a14,#c01828,#5a0a14);background-size:200% 100%;border-color:#ffd040;animation:ttlRb 2s linear infinite;text-shadow:1px 1px 0 #000,0 0 6px #ff4040;box-shadow:0 0 6px rgba(255,60,60,.7)}
 .ttl.admin::before{content:'👑 '}
+.ttl.gift{color:#fff;background:linear-gradient(90deg,#b040c0,#ff70b0,#b040c0);background-size:200% 100%;border-color:#ffd0f0;animation:ttlRb 3s linear infinite;text-shadow:1px 1px 0 #000}
 .ttl.gold{color:#3a2400;background:linear-gradient(180deg,#fff2a0,#f0c030 55%,#c08a10);border-color:#5a3a00;text-shadow:0 1px 0 rgba(255,255,255,.6)}
 .ttl.shiny{color:#3a2a08;background:linear-gradient(90deg,#ffe060,#fff8d0,#ffb0e8,#b0e8ff,#ffe060);background-size:300% 100%;animation:ttlRb 2.5s linear infinite;border-color:#fff}
 @keyframes ttlRb{to{background-position:300% 0}}
@@ -9711,15 +9736,217 @@ body.boss-fight #cb-wave{display:none!important}
 #beta-gift .bg-rew.on{display:flex}
 #beta-gift .bg-rew .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
 #beta-gift .bg-rew .it{background:#1a1428;border:3px solid #000;border-radius:8px;padding:10px 14px;color:#fff;font-size:20px;display:flex;align-items:center;gap:8px;box-shadow:0 0 0 2px #ffd040}
+#beta-gift .bg-rew .row{max-width:min(760px,94vw)}
+#beta-gift .bg-rew .it canvas{width:40px;height:40px;image-rendering:pixelated}
 #beta-gift .bg-rew .it img{width:22px;height:22px;image-rendering:pixelated}
 #beta-gift .bg-rew .ttl{font-size:13px;padding:6px 9px 5px}`;
     document.head.appendChild(css);
     document.body.insertAdjacentHTML('beforeend', `<div id="lg-note"></div>
       <div id="beta-gift" class="overlay"><h1>Gracias por probar el juego,<br>toma una recompensa</h1><canvas width="320" height="240"></canvas><div class="bg-hint"></div>
-        <div class="bg-rew"><div class="row"><div class="it">Título: <span class="ttl rainbow">BetaTester</span></div><div class="it"><img src="${G.RUN.coinURL()}"> 500 RushCoins</div><div class="it"><img src="${G.RUN.icon('ball').toDataURL()}"> 20 Poké Balls</div></div><button class="cta" id="bg-ok">¡Gracias!</button></div></div>`);
+        <div class="bg-rew"><div class="row"></div><button class="cta" id="bg-ok">¡Gracias!</button></div></div>`);
   }
   setTimeout(() => { build(); LG.showTitle(); badge(); betaTag(); }, 0);
   setInterval(() => { badge(); }, 5000);
+})();
+
+</script>
+<script>
+'use strict';
+// ===================================================================
+//  Regalos del administrador
+//  · Panel del admin: qué regalar (RushCoins, Poké Balls, Pokémon —también shiny y
+//    legendarios—, un título y un mensaje) y a quién (lista de jugadores con buscador
+//    y selección múltiple)
+//  · Jugador: al entrar le sale la ventana de regalo (como la de BetaTester) y lo abre
+// ===================================================================
+(function () {
+  const $ = s => document.querySelector(s);
+  const AG = G.ADMGIFT = {};
+  const ON = () => G.ONLINE, P = () => G.PROG.data;
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const ago = t => { if (!t) return 'nunca'; const m = Math.floor((Date.now() - t) / 60000); return m < 2 ? 'conectado ahora' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.floor(m / 60)} h` : `hace ${Math.floor(m / 1440)} d`; };
+  const shinyF = n => `hue-rotate(${150 + (n * 37) % 120}deg) saturate(1.25)`;
+  function drawPoke(c, n, shiny) {
+    const x = c.getContext('2d'); x.imageSmoothingEnabled = false; const draw = () => { x.clearRect(0, 0, c.width, c.height); const k = Math.min(1.4, (c.width - 6) / Math.max(20, G.POKE.targetSize(n)));
+      x.save(); x.translate(c.width / 2, c.height - 4); x.scale(k, k); if (shiny) x.filter = shinyF(n); G.POKE.draw(x, n, 0, 0, { t: 0, state: 'reposo', dir: 'down', shadow: false }); x.restore(); };
+    draw(); const p = G.POKE.load(n); if (p && p.then) p.then(draw);
+  }
+
+  // ---------------- panel del administrador ----------------
+  let players = [], sel = new Set(), pokes = [], filter = '';
+  AG.render = async function (box) {
+    build();
+    box.innerHTML = `<div class="ag">
+      <div class="ag-col"><h4>1 · ¿Qué quieres regalar?</h4>
+        <label>Mensaje del regalo<input id="ag-msg" maxlength="80" placeholder="¡El administrador te ha enviado un regalo!"></label>
+        <div class="ag-row"><label>RushCoins<input id="ag-coins" type="number" min="0" max="100000" value="0"></label><label>Poké Balls (gacha)<input id="ag-balls" type="number" min="0" max="10000" value="0"></label></div>
+        <label>Pokémon <small>(puedes añadir varios; pulsa ✨ para que sea shiny)</small><input id="ag-psearch" placeholder="Buscar por nombre o número…" autocomplete="off"></label>
+        <div class="ag-pres"></div><div class="ag-chips"></div>
+        <label>Título <small>(elige uno o escribe uno nuevo)</small><input id="ag-title" list="ag-titles" maxlength="24" placeholder="(opcional)"></label>
+        <datalist id="ag-titles">${Object.keys(G.LOGROS.TITLES).filter(t => t !== 'Admin').map(t => `<option value="${esc(t)}">`).join('')}</datalist>
+      </div>
+      <div class="ag-col"><h4>2 · ¿A quién?</h4>
+        <input id="ag-search" placeholder="Buscar jugador por nombre o código de amigo…" autocomplete="off">
+        <div class="ag-tools"><button class="ghost" id="ag-all">Seleccionar los de la lista</button><button class="ghost" id="ag-none">Quitar todos</button><span id="ag-count"></span></div>
+        <div class="ag-list">Cargando jugadores…</div>
+      </div>
+      <div class="ag-foot"><button class="cta" id="ag-send">🎁 Enviar regalo</button><span id="ag-res"></span></div></div>`;
+    const res = s => { box.querySelector('#ag-res').textContent = s; };
+    // Pokémon
+    const ps = box.querySelector('#ag-psearch'), pres = box.querySelector('.ag-pres');
+    ps.oninput = () => { const q = ps.value.trim().toLowerCase(); if (!q) { pres.innerHTML = ''; return; }
+      const list = G.DEX.filter(d => d && (d.name.toLowerCase().includes(q) || String(d.n) === q.replace('#', ''))).slice(0, 10);
+      pres.innerHTML = list.map(d => `<button class="ag-pk" data-n="${d.n}"><canvas width="34" height="34"></canvas><span>#${d.n} ${esc(d.name)}${d.rar === 'l' ? ' ★' : ''}</span></button>`).join('') || '<small class="hint">No hay ningún Pokémon con ese nombre.</small>';
+      pres.querySelectorAll('.ag-pk').forEach(b => { drawPoke(b.querySelector('canvas'), +b.dataset.n); b.onclick = () => { pokes.push({ n: +b.dataset.n, shiny: false }); chips(); }; }); };
+    const chips = () => { const c = box.querySelector('.ag-chips');
+      c.innerHTML = pokes.map((p, i) => `<span class="ag-chip ${p.shiny ? 'sh' : ''}"><canvas width="30" height="30"></canvas>${esc(G.DEX[p.n].name)}<button data-sh="${i}" title="Shiny">✨</button><button data-rm="${i}" title="Quitar">✕</button></span>`).join('');
+      c.querySelectorAll('canvas').forEach((cv, i) => drawPoke(cv, pokes[i].n, pokes[i].shiny));
+      c.querySelectorAll('[data-sh]').forEach(b => b.onclick = () => { const p = pokes[+b.dataset.sh]; p.shiny = !p.shiny; chips(); });
+      c.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { pokes.splice(+b.dataset.rm, 1); chips(); }); };
+    chips();
+    // jugadores
+    const list = box.querySelector('.ag-list'), count = () => { box.querySelector('#ag-count').textContent = `${sel.size} seleccionado${sel.size === 1 ? '' : 's'}`; };
+    const shown = () => { const q = filter.toLowerCase(); return players.filter(p => !q || (p.name || '').toLowerCase().includes(q) || (p.code || '').toLowerCase().includes(q)); };
+    const draw = () => { const L = shown();
+      list.innerHTML = L.length ? L.map(p => `<label class="ag-pl ${sel.has(p.uid) ? 'on' : ''}"><input type="checkbox" data-u="${p.uid}" ${sel.has(p.uid) ? 'checked' : ''}><span class="ag-pn"><b>${esc(p.name || 'Sin nombre')}</b>${p.titulo ? G.LOGROS.titleHTML(p.titulo, true) : ''}<small>${esc(p.code || '')} · ${ago(p.lastSeen)} · ${p.dex || 0} en la Pokédex${p.uid === ON().uid() ? ' · (tú)' : ''}</small></span></label>`).join('')
+        : `<p class="hint">${players.length ? 'Ningún jugador coincide con la búsqueda.' : 'Todavía no hay jugadores con cuenta.'}</p>`;
+      list.querySelectorAll('input[data-u]').forEach(c => c.onchange = () => { if (c.checked) sel.add(c.dataset.u); else sel.delete(c.dataset.u); c.closest('.ag-pl').classList.toggle('on', c.checked); count(); }); count(); };
+    box.querySelector('#ag-search').oninput = e => { filter = e.target.value.trim(); draw(); };
+    box.querySelector('#ag-all').onclick = () => { shown().forEach(p => sel.add(p.uid)); draw(); };
+    box.querySelector('#ag-none').onclick = () => { sel.clear(); draw(); };
+    try { const all = await ON().allProfiles() || {}; players = Object.entries(all).map(([uid, v]) => Object.assign({ uid }, v)).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0)); draw(); }
+    catch (e) { list.innerHTML = `<p class="hint">No se pudo cargar la lista: ${esc(e.message)}</p>`; }
+    // enviar
+    box.querySelector('#ag-send').onclick = async () => {
+      const coins = Math.max(0, Math.min(100000, Math.floor(+box.querySelector('#ag-coins').value || 0))), balls = Math.max(0, Math.min(10000, Math.floor(+box.querySelector('#ag-balls').value || 0)));
+      let titulo = box.querySelector('#ag-title').value.trim().slice(0, 24); if (titulo === 'Admin') return res('El título «Admin» no se puede regalar.');
+      const msg = box.querySelector('#ag-msg').value.trim().slice(0, 80);
+      if (!coins && !balls && !pokes.length && !titulo) return res('Elige al menos una cosa para regalar.');
+      if (!sel.size) return res('Selecciona al menos un jugador.');
+      const gift = { msg, coins, balls, pokes: pokes.slice(0, 30), titulo };
+      if (!confirm(`¿Enviar este regalo a ${sel.size} jugador${sel.size === 1 ? '' : 'es'}?`)) return;
+      const btn = box.querySelector('#ag-send'); btn.disabled = true; let ok = 0, fail = 0; res('Enviando…');
+      for (const uid of sel) { try { await ON().sendAdminGift(uid, gift); ok++; } catch (e) { fail++; } res(`Enviando… ${ok + fail}/${sel.size}`); }
+      btn.disabled = false; res(fail ? `Enviado a ${ok}. Fallaron ${fail} (¿reglas publicadas?).` : `¡Regalo enviado a ${ok} jugador${ok === 1 ? '' : 'es'}! Lo verán al entrar al juego.`);
+      if (!fail) { pokes = []; chips(); sel.clear(); draw(); }
+    };
+  };
+
+  // ---------------- jugador: recibir y abrir ----------------
+  let checking = false, queue = [];
+  function rewardsHTML(g) {
+    const coin = G.RUN.coinURL(), ball = G.RUN.icon('ball').toDataURL();
+    return [g.titulo ? `<div class="it">Título: ${G.LOGROS.titleHTML(g.titulo)}</div>` : '', g.coins ? `<div class="it"><img src="${coin}"> ${g.coins} RushCoins</div>` : '', g.balls ? `<div class="it"><img src="${ball}"> ${g.balls} Poké Balls</div>` : '']
+      .concat((g.pokes || []).filter(p => G.DEX[p.n]).map(p => `<div class="it"><canvas data-n="${p.n}" data-s="${p.shiny ? 1 : 0}" width="40" height="40"></canvas>${esc(G.DEX[p.n].name)}${p.shiny ? ' ✨' : ''}</div>`)).join('');
+  }
+  function apply(g) {
+    const p = P(); p.rushcoins = (p.rushcoins || 0) + (+g.coins || 0); p.balls = (p.balls || 0) + (+g.balls || 0);
+    for (const k of (g.pokes || [])) { const n = +k.n, d = G.DEX[n]; if (!d) continue;
+      if (d.rar === 'l') { p.legGacha = p.legGacha || {}; p.legCaptura = p.legCaptura || {}; p.legGacha[n] = true; p.legCaptura[n] = true; } // un legendario regalado ya se puede usar
+      if (!p.coleccion.includes(n)) p.coleccion.push(n); if (!p.capturados.includes(n)) p.capturados.push(n); if (!p.vistos.includes(n)) p.vistos.push(n);
+      if (k.shiny) { p.shiny = p.shiny || []; if (!p.shiny.includes(n)) p.shiny.push(n); } }
+    if (g.titulo && g.titulo !== 'Admin') { p.titulos = p.titulos || []; if (!p.titulos.includes(g.titulo)) p.titulos.push(g.titulo); }
+    G.PROG.save(); if (G.MENU_updateTop) G.MENU_updateTop(); if (G.LOGROS) G.LOGROS.showTitle();
+  }
+  function openNext() {
+    const it = queue.shift(); if (!it) return; const [id, g] = it;
+    G.LOGROS.openGift({ title: esc(g.msg || '¡El administrador te ha enviado un regalo!'), rewards: rewardsHTML(g),
+      after: row => row.querySelectorAll('canvas[data-n]').forEach(c => drawPoke(c, +c.dataset.n, c.dataset.s === '1')),
+      onOpen: () => { apply(g); ON().deleteAdminGift(id).catch(() => { }); },
+      done: () => setTimeout(openNext, 600) });
+  }
+  async function check() {
+    const on = ON(); if (checking || queue.length || !on || !on.configured() || !on.user() || !G.LOGROS || !G.LOGROS.canPopup()) return; checking = true;
+    try { const all = await on.myAdminGifts(); queue = Object.entries(all).filter(([, g]) => g && typeof g === 'object').sort((a, b) => (a[1].t || 0) - (b[1].t || 0)); if (queue.length && G.LOGROS.canPopup()) openNext(); else queue = []; }
+    catch (e) { /* sin conexión: se intenta más tarde */ } checking = false;
+  }
+  AG.check = check;
+  setTimeout(check, 6000); setInterval(check, 45000);
+
+  // ---------------- estilos ----------------
+  let built = false;
+  function build() {
+    if (built) return; built = true; const css = document.createElement('style'); css.textContent = `
+.ag{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:820px){.ag{grid-template-columns:1fr}}
+.ag-col{background:#1a1428;border:2px solid #000;border-radius:8px;padding:10px}
+.ag h4{margin:0 0 8px;font-family:'Press Start 2P',monospace;font-size:10px;color:#ffd040}
+.ag label{display:block;margin-bottom:8px;color:var(--ink2);font-size:17px}
+.ag label small{color:#8a84a0;font-size:15px}
+.ag input{display:block;width:100%;box-sizing:border-box;margin-top:3px;background:#0e0a16;border:2px solid #3a3050;border-radius:6px;color:#fff;padding:6px 8px;font:inherit;font-size:18px}
+.ag-row{display:flex;gap:8px}.ag-row label{flex:1}
+.ag-pres{display:flex;flex-wrap:wrap;gap:4px;margin:-4px 0 6px}
+.ag-pk{display:flex;align-items:center;gap:4px;background:#2a2238;border:2px solid #000;border-radius:6px;color:#fff;padding:2px 8px 2px 2px;cursor:pointer;font:inherit;font-size:16px}
+.ag-pk:hover{outline:2px solid #ffd040}
+.ag-pk canvas,.ag-chip canvas{image-rendering:pixelated}
+.ag-chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.ag-chip{display:flex;align-items:center;gap:4px;background:#30264a;border:2px solid #000;border-radius:14px;padding:1px 4px 1px 2px;font-size:16px;color:#fff}
+.ag-chip.sh{background:linear-gradient(90deg,#6a5010,#30264a);border-color:#ffd040}
+.ag-chip button{background:none;border:none;color:#d8d0e8;cursor:pointer;font-size:14px;padding:0 2px}
+.ag-tools{display:flex;gap:6px;align-items:center;margin:6px 0;flex-wrap:wrap}
+.ag-tools button{font-size:15px;padding:3px 8px}
+#ag-count{margin-left:auto;color:#ffd040;font-size:16px}
+.ag-list{max-height:300px;overflow:auto;display:flex;flex-direction:column;gap:4px;padding-right:2px}
+.ag-pl{display:flex!important;align-items:center;gap:8px;margin:0!important;background:#221a30;border:2px solid #000;border-radius:6px;padding:5px 8px;cursor:pointer}
+.ag-pl.on{background:#3a2e10;border-color:#ffd040}
+.ag-pl input{width:auto;margin:0;display:inline-block}
+.ag-pn{display:flex;flex-wrap:wrap;align-items:center;gap:5px;color:#fff;font-size:17px}.ag-pn small{flex-basis:100%;color:#8a84a0;font-size:14px}
+.ag-foot{grid-column:1/-1;display:flex;align-items:center;gap:12px}#ag-res{color:#ffe8a0;font-size:17px}`;
+    document.head.appendChild(css);
+  }
+})();
+
+</script>
+<script>
+'use strict';
+// ===================================================================
+//  Aviso de actualización: si en el servidor hay una versión nueva del juego,
+//  sale una ventana para recargar la página (durante una partida, solo un aviso
+//  pequeño arriba para no cortarla).
+// ===================================================================
+(function () {
+  const $ = s => document.querySelector(s);
+  const UP = G.UPDATE = {};
+  const cur = window.POKERUSH_BUILD || 'dev';
+  let found = null, later = 0, built = false;
+  function build() {
+    if (built) return; built = true;
+    const css = document.createElement('style'); css.textContent = `
+#upd .up-box{width:min(440px,92vw);background:#1a1428;border:3px solid #000;border-radius:12px;box-shadow:0 0 0 3px #5ad0f0,0 0 40px rgba(90,208,240,.35);padding:20px 18px 16px;text-align:center;color:var(--ink)}
+#upd .up-ic{font-size:44px;animation:upSpin 2.4s linear infinite;display:inline-block}
+@keyframes upSpin{to{transform:rotate(360deg)}}
+#upd h2{font-family:'Press Start 2P',monospace;font-size:14px;line-height:1.6;color:#fff;margin:8px 0 6px}
+#upd p{color:var(--ink2);font-size:19px;margin:4px 0 14px}
+#upd .up-b{display:flex;gap:10px;justify-content:center}
+#upd-bar{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);z-index:35;display:none;align-items:center;gap:10px;background:#1a1428;border:2px solid #000;border-radius:8px;box-shadow:0 0 0 2px #5ad0f0;padding:6px 10px;color:#fff;font-size:18px}
+#upd-bar.on{display:flex}#upd-bar button{font-size:16px;padding:3px 10px}`;
+    document.head.appendChild(css);
+    document.body.insertAdjacentHTML('beforeend', `<div id="upd" class="overlay"><div class="up-box"><div class="up-ic">🔄</div><h2>¡Hay una actualización!</h2><p id="upd-txt"></p>
+      <div class="up-b"><button class="ghost" id="upd-later">Más tarde</button><button class="cta" id="upd-go">Recargar ahora</button></div></div></div>
+      <div id="upd-bar">🔄 Hay una actualización del juego · recarga al terminar la partida <button class="ghost" id="upd-bar-go">Recargar</button><button class="ghost" id="upd-bar-x">✕</button></div>`);
+    $('#upd-go').onclick = $('#upd-bar-go').onclick = () => location.reload();
+    $('#upd-later').onclick = () => { $('#upd').classList.remove('on'); later = Date.now() + 10 * 60000; };
+    $('#upd-bar-x').onclick = () => { $('#upd-bar').classList.remove('on'); later = Date.now() + 10 * 60000; };
+  }
+  function show() {
+    build(); if (Date.now() < later) return;
+    if (G.RUN && G.RUN.on && !G.RUN.dead) { $('#upd-bar').classList.add('on'); return; } // en partida no se corta: aviso pequeño
+    $('#upd-bar').classList.remove('on');
+    $('#upd-txt').innerHTML = `${found.v ? `La versión <b>${found.v}</b> ya está disponible. ` : 'Hay una versión nueva del juego. '}Recarga la página para jugar a la última versión.`;
+    if (!document.querySelector('.overlay.on')) $('#upd').classList.add('on');
+  }
+  async function check() {
+    if (found) return show();
+    if (!/^https?:$/.test(location.protocol) || cur === 'dev' || !window.fetch) return;
+    try {
+      const r = await fetch(location.pathname + '?actualizacion=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return;
+      const tx = await r.text(), m = /POKERUSH_BUILD = '([0-9a-f]{6,})'/.exec(tx); if (!m || m[1] === cur) return;
+      found = { id: m[1], v: (/\{ v: '([\d.]+)', fecha/.exec(tx) || [])[1] }; show();
+    } catch (e) { /* sin conexión: se vuelve a mirar más tarde */ }
+  }
+  UP.check = check; UP.build = cur;
+  setTimeout(check, 15000); setInterval(check, 120000);
+  addEventListener('focus', () => check()); document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
 })();
 
 </script>
@@ -10388,199 +10615,4 @@ body.boss-fight #cb-wave{display:none!important}
     drawTransition();
   }
   // disolución pixelada entre biomas (sin tapar la interfaz)
-  const BAY8 = (() => { const b = [0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38, 60, 28, 52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25, 15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21]; return b.map(v => v / 64); })();
-  let tcv = null;
-  function drawTransition() {
-    const tr = st.trans; if (!tr) return; const k = (performance.now() - tr.t0) / 900; if (k >= 1) { st.trans = null; return; }
-    if (!tcv || tcv.width !== tr.img.width) tcv = G.makeCanvas(tr.img.width, tr.img.height);
-    const x = tcv.getContext('2d'); x.globalCompositeOperation = 'source-over'; x.clearRect(0, 0, tcv.width, tcv.height); x.drawImage(tr.img, 0, 0);
-    const B = 4, cols = Math.ceil(tcv.width / B), rows = Math.ceil(tcv.height / B);
-    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) { const sweep = (i / cols) * 0.55; if (BAY8[(j & 7) * 8 + (i & 7)] * 0.45 + sweep < k) x.clearRect(i * B, j * B, B, B); }
-    ctx.drawImage(tcv, 0, 0);
-    // estela de luz que recorre la pantalla
-    const sx = (k * 1.25 - 0.15) * st.vw; ctx.globalCompositeOperation = 'lighter'; const g = ctx.createLinearGradient(sx - 40, 0, sx + 40, 0);
-    g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,240,200,0.35)'); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.fillRect(sx - 40, 0, 80, st.vh); ctx.globalCompositeOperation = 'source-over';
-  }
-  function ellipse(x, y, rx, ry) { ctx.beginPath(); ctx.ellipse(Math.round(x), Math.round(y), rx, ry, 0, 0, Math.PI * 2); ctx.fill(); }
-
-  function drawPlayer(cx, cy) {
-    const p = st.player, SH = G.TRAINER.cur; let img;
-    // animación: lanzar ulti, golpe recibido, correr, andar o respirar en reposo
-    if (st.castT > 0) img = SH.anim('cast', p.dir, Math.floor((0.7 - st.castT) * 6));
-    else if (st.hitT > 0) img = SH.anim('hurt', p.dir, 0);
-    else if (p.moving) img = SH.anim(st.running ? 'run' : 'walk', p.dir, Math.floor(p.anim * 1.5));
-    else img = SH.anim('idle', p.dir, Math.floor(st.time * 2.2) % 8 === 7 ? 3 : Math.floor(st.time * 1.6) % 3);
-    const x = Math.round(p.x - img.width / 2 - cx), y = Math.round(p.y - img.height - cy);
-    ctx.drawImage(img, x, y);
-    if (st.hurtT > 0 && Math.floor(st.time * 12) % 2) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.5; ctx.drawImage(redOf(img), x, y); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
-    // hierba alta / agua por encima de las piernas
-    const tn = G.TERR[st.map.get(Math.floor(p.x / T), Math.floor((p.y - 1) / T))].name;
-    const td = G.TERR[st.map.get(Math.floor(p.x / T), Math.floor((p.y - 1) / T))];
-    const wet = td.liquid && td.walk;
-    if (tn === 'tallgrass' || tn === 'tallMeadow' || wet) {
-      const hgt = !wet ? 7 : td.speed < 0.55 ? 12 : td.speed < 0.7 ? 8 : 4; const sx = Math.round(p.x - 9), sy = Math.round(p.y - hgt);
-      ctx.globalAlpha = wet ? 0.8 : 1;
-      ctx.drawImage(st.ground.cv, sx, sy, 18, hgt + 1, sx - cx, sy - cy, 18, hgt + 1);
-      ctx.globalAlpha = 1;
-      if (wet) { ctx.fillStyle = td.dmg ? 'rgba(255,220,120,0.9)' : td.toxic ? 'rgba(240,184,255,0.8)' : 'rgba(255,255,255,0.75)'; const w = 8 + (p.moving ? Math.floor(st.time * 6) % 3 * 2 : 0); ctx.fillRect(Math.round(p.x - w / 2 - cx), Math.round(p.y - hgt - cy), w, 1); if (p.moving) { ctx.fillRect(Math.round(p.x - w / 2 - 2 - cx), Math.round(p.y - hgt + 1 - cy), 1, 1); ctx.fillRect(Math.round(p.x + w / 2 + 1 - cx), Math.round(p.y - hgt + 1 - cy), 1, 1); } }
-    }
-  }
-  const _red = new WeakMap();
-  function redOf(img) { let c = _red.get(img); if (c) return c; c = G.makeCanvas(img.width, img.height); const x = c.getContext('2d'); x.drawImage(img, 0, 0); x.globalCompositeOperation = 'source-in'; x.fillStyle = '#ff2a1a'; x.fillRect(0, 0, c.width, c.height); _red.set(img, c); return c; }
-  function drawRival(r, cx, cy, t) {
-    if (!r || r.done) return; if (!st.map.rivalSheet) st.map.rivalSheet = G.TRAINER.sheet((G.BOSS && G.BOSS.rivalApp(st.map)) || G.TRAINER.random(true), { ghost: true }); const img = st.map.rivalSheet.down[Math.floor(t * 1.5) % 2 ? 0 : 0]; const x = Math.round((r.x + 0.5) * T - img.width / 2 - cx), y = Math.round((r.y + 0.5) * T + 4 - img.height - cy + Math.sin(t * 2) * 1.5);
-    ctx.globalAlpha = 0.55 + Math.sin(t * 3) * 0.1; ctx.drawImage(img, x, y); ctx.globalAlpha = 1;
-  }
-  function drawPortalSwirl(p, cx, cy, t) {
-    const x = p.x - cx, y = p.y - p.s.ay + 21 - cy;
-    for (let i = 0; i < 26; i++) {
-      const a = t * 1.4 + i / 26 * Math.PI * 2, rr = 4 + (i % 4) * 2.6; const px = Math.round(x + Math.cos(a + rr * 0.3) * rr), py = Math.round(y + Math.sin(a + rr * 0.3) * rr * 1.3);
-      ctx.fillStyle = ['#3a1a60', '#6a3aa0', '#a070e0', '#d8b0ff'][i % 4]; ctx.globalAlpha = 0.55; ctx.fillRect(px, py, 1, 1);
-    }
-    ctx.globalAlpha = 1;
-  }
-  function drawTeleBeam(p, cx, cy, t) {
-    ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < 10; i++) { const k = (t * 0.8 + i / 10) % 1; const a = i / 10 * Math.PI * 2 + t; const x = Math.round(p.x - cx + Math.cos(a) * 9), y = Math.round(p.y - 7 - cy - k * 26); ctx.globalAlpha = (1 - k) * 0.8; ctx.fillStyle = i & 1 ? '#7ae8ff' : '#e0ffff'; ctx.fillRect(x, y, 1, 3); }
-    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-  }
-  function drawWaypointWorld(cx, cy, t) {
-    const w = st.waypoint; if (!w) return; const x = Math.round(w.x - cx), y = Math.round(w.y - cy);
-    if (x < -20 || y < -40 || x > st.vw + 20 || y > st.vh + 20) return;
-    const b = Math.round(Math.abs(Math.sin(t * 3)) * 4);
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ellipse(x, y, 4, 2);
-    ctx.fillStyle = '#1a1020'; ctx.fillRect(x - 3, y - 17 - b, 7, 7); ctx.fillRect(x - 1, y - 10 - b, 3, 3);
-    ctx.fillStyle = '#f8d878'; ctx.fillRect(x - 2, y - 16 - b, 5, 5); ctx.fillRect(x, y - 11 - b, 1, 2); ctx.fillStyle = '#fff8d0'; ctx.fillRect(x - 1, y - 15 - b, 1, 1);
-  }
-  function drawPOIUnder(cx, cy, t) {
-    const m = st.map;
-    for (const q of m.pois) {
-      const x = (q.x + 0.5) * T - cx, y = (q.y + 0.5) * T - cy;
-      if (x < -90 || y < -90 || x > st.vw + 90 || y > st.vh + 90) continue;
-      if (q.kind === 'zone') { ctx.globalAlpha = 0.07 + Math.sin(t * 2) * 0.04; ctx.fillStyle = '#f8e070'; ctx.beginPath(); ctx.arc(x, y, 4 * T, 0, 6.29); ctx.fill(); ctx.globalAlpha = 1; }
-    }
-  }
-  function drawPOIOver(cx, cy, t) {
-    const m = st.map;
-    for (const q of m.pois) {
-      const x = Math.round((q.x + 0.5) * T - cx), y = Math.round((q.y + 0.5) * T - cy);
-      if (x < -90 || y < -90 || x > st.vw + 90 || y > st.vh + 90) continue;
-      if (q.kind === 'arena' && q.prop && q.state !== 'carga') { const py = (q.y + 0.5) * T + 18 - cy - 40; ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.25 + Math.sin(t * 3) * 0.1; ctx.drawImage(FX.tinted(q.state === 'abierto' ? '#ffe080' : st.map.biome.accent), x - 30, py - 26, 60, 60); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; }
-      if (q.kind === 'hidden') { const k = (t % 2.2) / 2.2; if (k < 0.3) { const a = Math.sin(k / 0.3 * Math.PI); ctx.globalAlpha = a; ctx.fillStyle = '#fff8c0'; const r = Math.round(1 + a * 3); ctx.fillRect(x, y - r, 1, r * 2 + 1); ctx.fillRect(x - r, y, r * 2 + 1, 1); ctx.globalAlpha = a * 0.6; ctx.drawImage(FX.tinted('#fff0a0'), x - 8, y - 8, 16, 16); ctx.globalAlpha = 1; } }
-      if (q.kind === 'alpha') { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.18 + Math.sin(t * 3) * 0.08; ctx.drawImage(FX.tinted('#ff2a2a'), x - 40, y - 30, 80, 60); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; }
-    }
-  }
-
-  // ---------------- interfaz ----------------
-  function updateTrainerHUD() {
-    const c = $('#hud-portrait'), x = c.getContext('2d'); x.clearRect(0, 0, 26, 23); x.drawImage(G.TRAINER.portrait(G.TRAINER.app), 0, 0);
-    $('#hud-tname').textContent = G.TRAINER.name;
-  }
-  G.TRAINER.onChange = () => { updateTrainerHUD(); toast('Entrenador guardado'); };
-  $('#hud-trainer').onclick = () => { st.keys = {}; G.EDITOR.open(); };
-  function badge(type) { const [n, c] = G.TYPES[type]; return `<span class="type" style="--c:${c}">${n}</span>`; }
-  function updateHUD() {
-    const b = B[st.idx];
-    $('#hud-name').textContent = b.name;
-    $('#hud-types').innerHTML = b.types.map(badge).join('');
-    $('#hud-info').innerHTML = `Zonas <b>${b.zones[0]}–${b.zones[1]}</b> · Jefe <b>${b.boss}</b><br>Rara posible <b>${b.rare}</b> · Extra <b>${b.reward}</b>`;
-    $('#hud-seed').textContent = 'semilla ' + seedOf(b);
-    $('#hud-idx').textContent = (st.idx + 1) + '/' + B.length;
-  }
-  let bannerT = null;
-  function banner(b) {
-    const el = $('#banner'); el.innerHTML = `<div class="b-name">${b.name}</div><div class="b-types">${b.types.map(badge).join('')}</div><div class="b-desc">${b.desc}</div>`;
-    el.classList.remove('on'); void el.offsetWidth; el.classList.add('on'); clearTimeout(bannerT); bannerT = setTimeout(() => el.classList.remove('on'), 4200);
-  }
-  let toastT = null;
-  function toast(s) { const el = $('#toast'); el.textContent = s; el.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('on'), 1400); }
-
-  const POI_TXT = {
-    arena: b => [`Arena del jefe · ${b.boss}`, `Tipo dominante: ${b.types.map(t => G.TYPES[t][0]).join(' / ')}. Al vencerlo tendrás una opción de captura (más difícil).`],
-    portal: () => ['Portal al jefe', 'Se abre al completar las misiones de la zona. Puedes entrar o seguir farmeando.'],
-    hidden: () => ['Misión · Objeto escondido', 'Algo brilla por aquí…'],
-    zone: () => ['Misión · Zona marcada', 'Sobrevive dentro del círculo el tiempo indicado.'],
-    alpha: () => ['Misión · Criatura alfa', 'La guarida de un Pokémon alfa, más fuerte de lo normal.'],
-    rival: () => ['Misión · Rival fantasma', 'Un entrenador NPC con el equipo real de otro jugador.'],
-    heal: q => ['Estación de curación', q.used ? 'Ya utilizada en esta partida.' : '[E] Curar al equipo (un uso por partida).'],
-    balls: q => ['Máquina de Poké Balls', q.used ? 'Vacía.' : '[E] Recoger Poké Balls (un uso por partida).'],
-    tele: q => ['Teletransportador', '[E] Viajar al otro teletransportador del mapa.'],
-  };
-  // iconos pixel del minimapa (uno por estructura)
-  const MINI = {
-    arena: ['.ooooo.', 'o11111o', 'o1o2o1o', 'o12221o', 'o1o2o1o', 'o11111o', '.ooooo.'], portal: ['.ooooo.', 'o11111o', 'o1ooo1o', 'o1o2o1o', 'o1ooo1o', 'o11111o', '.ooooo.'],
-    heal: ['.ooooo.', 'oo212oo', 'o22122o', 'o11111o', 'o22122o', 'oo212oo', '.ooooo.'], balls: ['..ooo..', '.o111o.', 'o11111o', 'ooo2ooo', 'o22222o', '.o222o.', '..ooo..'],
-    tele: ['ooooooo', 'o1o2o1o', 'o11o11o', 'o22222o', 'o11o11o', 'o1o2o1o', 'ooooooo'], fusion: ['ooo.ooo', 'o1o.o1o', 'o11o11o', 'o12121o', 'o11o11o', 'o1o.o1o', 'ooo.ooo'],
-    altar: ['...o...', '..o1o..', '.o121o.', 'o12221o', '.o121o.', '..o1o..', '...o...'], statue: ['o.o.o.o', 'ooooooo', '.o121o.', '.o121o.', '.o121o.', 'ooooooo', 'o11111o'],
-    shrine: ['...o...', '..o1o..', '..o1o..', '.o121o.', '.o121o.', 'o11111o', 'ooooooo'], totem: ['.ooooo.', 'o11111o', 'o2o1o2o', 'o11111o', '.o1o1o.', '.o111o.', '.ooooo.'],
-    chest: ['ooooooo', 'o11111o', 'o11111o', 'ooo2ooo', 'o11211o', 'o11111o', 'ooooooo'], evo: ['..ooo..', '.o221o.', 'o22111o', 'o21111o', '.o111o.', '..o1o..', '...o...'],
-    merchant: ['..ooo..', '.o1o1o.', 'ooo1ooo', 'o11211o', 'o12121o', 'o11211o', 'ooooooo'], hidden: ['...o...', '..o1o..', 'oo121oo', 'o12221o', 'oo121oo', '..o1o..', '...o...'],
-    zone: ['.o.o.o.', 'o.....o', '...1...', 'o.121.o', '...1...', 'o.....o', '.o.o.o.'], alpha: ['.ooooo.', 'o11211o', 'o11211o', 'o11211o', 'o11111o', 'o11211o', '.ooooo.'],
-    rival: ['..ooo..', '.o121o.', '..o1o..', '.o111o.', 'o11111o', '.o1o1o.', '.oo.oo.'],
-  };
-  const _mini = {};
-  function miniIcon(k, used) { const key = k + (used ? 'u' : ''); if (_mini[key]) return _mini[key]; const col = used ? '#707070' : (POI_COL[k] || '#ffffff'); return (_mini[key] = G.gridPix(MINI[k] || MINI.hidden, { o: '#000000', 1: col, 2: used ? '#a0a0a0' : '#ffffff' }).canvas()); }
-  const POI_COL = { arena: '#ff3a4a', portal: '#c070ff', hidden: '#fff070', zone: '#f8e070', alpha: '#ff7a3a', rival: '#a88cf0', heal: '#40f0a0', balls: '#ff5a5a', tele: '#5ae8ff', fusion: '#ff7ad8', altar: '#7ae860', statue: '#c8c0b0', shrine: '#f8d030', totem: '#ff3a5a', chest: '#d8a830', evo: '#4ae0e8', merchant: '#f0c030' };
-  setTimeout(() => { const lg = document.querySelector('#mini-wrap .legend'); if (lg) lg.innerHTML = [['arena', 'Jefe'], ['hidden', 'Misión'], ['heal', 'Curación'], ['balls', 'Balls'], ['tele', 'Teletr.'], ['altar', 'Altar'], ['fusion', 'Fusión'], ['shrine', 'Santuario'], ['chest', 'Cofre'], ['merchant', 'Mercader']].map(([k, n]) => `<span><img src="${miniIcon(k).toDataURL()}">${n}</span>`).join(''); }, 0);
-  const POI_NAME = { arena: 'Arena del jefe', portal: 'Portal al jefe', hidden: 'Objeto escondido', zone: 'Zona marcada', alpha: 'Criatura alfa', rival: 'Rival fantasma', heal: 'Estación de curación', balls: 'Máquina de Poké Balls', tele: 'Teletransportador', fusion: 'Máquina de fusión', altar: 'Altar de experiencia', statue: 'Estatua del jefe', shrine: 'Santuario de tipo', totem: 'Tótem maldito', chest: 'Cofre sellado', evo: 'Altar de evolución', merchant: 'Mercader ambulante' };
-  const POI_ICON = { arena: '◎', portal: '◎', hidden: '✦', zone: '◯', alpha: '!', rival: '♟', heal: '+', balls: '●', tele: '⇄', fusion: '∞', altar: '✧', statue: '♜', shrine: '△', totem: '☗', chest: '▣', evo: '◆', merchant: '$' };
-  function updateLabel() {
-    const m = st.map, p = st.player, el = $('#label'); let best = null, bd = 1e9;
-    for (const q of m.pois) { const d = Math.hypot((q.x + 0.5) * T - p.x, (q.y + 0.5) * T - p.y); const lim = q.kind === 'arena' ? 6 * T : q.kind === 'zone' || q.kind === 'altar' ? 4 * T : 2.6 * T; if (d < lim && d < bd) { bd = d; best = q; } }
-    if (!best) { el.classList.remove('on'); return; }
-    const lab = st.mode === 'game' && G.RUN.on ? G.RUN.label(best) : null;
-    const [a, b] = lab || (POI_TXT[best.kind] ? POI_TXT[best.kind](best.machine ? best : B[st.idx]) : [POI_NAME[best.kind] || '', '']);
-    el.innerHTML = `<b style="color:${POI_COL[best.kind] || '#fff'}">${a}</b><span>${b}</span>`; el.classList.add('on');
-    const sx = ((best.x + 0.5) * T - st.cam.x) * st.zoom, sy = ((best.y + 0.5) * T - st.cam.y - (best.kind === 'arena' ? 34 : 26)) * st.zoom;
-    el.style.left = Math.max(110, Math.min(innerWidth - 110, sx)) + 'px'; el.style.top = Math.max(60, sy) + 'px';
-  }
-
-  // minimapa
-  const mm = $('#minimap'), mmx = mm.getContext('2d');
-  function drawMinimap() {
-    if (!st.ready) return; const m = st.map, s = mm.width / m.W;
-    mmx.imageSmoothingEnabled = false; mmx.drawImage(st.mini, 0, 0, mm.width, mm.height);
-    if (!st.revealAll) { mmx.imageSmoothingEnabled = true; mmx.drawImage(m.fogCv, 0, 0, mm.width, mm.height); mmx.imageSmoothingEnabled = false; }
-    for (const q of m.pois) { if (!q.found && !st.revealAll) continue; const ic = miniIcon(q.kind, q.used); mmx.drawImage(ic, Math.round(q.x * s - ic.width), Math.round(q.y * s - ic.height), ic.width * 2, ic.height * 2); }
-    if (st.waypoint) { const wx = st.waypoint.x / T * s, wy = st.waypoint.y / T * s; mmx.fillStyle = '#000'; mmx.fillRect(wx - 3, wy - 7, 7, 7); mmx.fillStyle = '#f8d878'; mmx.fillRect(wx - 2, wy - 6, 5, 5); mmx.fillRect(wx, wy - 1, 1, 2); }
-    mmx.strokeStyle = 'rgba(255,255,255,0.7)'; mmx.lineWidth = 1; mmx.strokeRect(Math.round(st.cam.x / T * s) + 0.5, Math.round(st.cam.y / T * s) + 0.5, st.vw / T * s, st.vh / T * s);
-    if (Math.floor(st.time * 3) % 2) { mmx.fillStyle = '#fff'; mmx.fillRect(st.player.x / T * s - 2, st.player.y / T * s - 2, 4, 4); }
-  }
-
-  // mapa completo (con niebla de exploración y destino)
-  function toggleMap() {
-    const el = $('#mapview'); if (el.classList.contains('on')) { el.classList.remove('on'); return; }
-    drawFullMap(); el.classList.add('on');
-  }
-  function drawFullMap() {
-    const m = st.map; if (!m.snap) m.snap = G.snapshot(m, st.ground);
-    const c = $('#mapcanvas'); c.width = m.snap.width; c.height = m.snap.height; const x = c.getContext('2d'); x.imageSmoothingEnabled = false; x.drawImage(m.snap, 0, 0);
-    if (!st.revealAll) { x.imageSmoothingEnabled = true; x.drawImage(m.fogCv, 0, 0, c.width, c.height); x.imageSmoothingEnabled = false; }
-    x.textAlign = 'center'; x.textBaseline = 'middle';
-    const found = m.pois.filter(q => q.found || st.revealAll);
-    for (const q of found) {
-      const px = (q.x + 0.5) * T, py = (q.y + 0.5) * T; x.fillStyle = 'rgba(0,0,0,0.75)'; x.beginPath(); x.arc(px, py, 22, 0, 7); x.fill();
-      x.strokeStyle = q.used ? '#777' : POI_COL[q.kind]; x.lineWidth = 4; x.stroke(); const ic = miniIcon(q.kind, q.used); x.drawImage(ic, Math.round(px - ic.width * 2.5), Math.round(py - ic.height * 2.5), ic.width * 5, ic.height * 5);
-    }
-    for (const q of found) if (q.kind === 'tele' && q.link && (q.link.found || st.revealAll)) { x.setLineDash([10, 10]); x.strokeStyle = 'rgba(90,232,255,0.6)'; x.lineWidth = 3; x.beginPath(); x.moveTo((q.x + 0.5) * T, (q.y + 0.5) * T); x.lineTo((q.link.x + 0.5) * T, (q.link.y + 0.5) * T); x.stroke(); x.setLineDash([]); }
-    if (st.waypoint) { const w = st.waypoint; x.fillStyle = '#f8d878'; x.strokeStyle = '#000'; x.lineWidth = 4; x.beginPath(); x.moveTo(w.x, w.y); x.lineTo(w.x - 16, w.y - 34); x.lineTo(w.x + 16, w.y - 34); x.closePath(); x.stroke(); x.fill(); }
-    x.fillStyle = '#fff'; x.beginPath(); x.arc(st.player.x, st.player.y - 6, 14, 0, 7); x.fill(); x.strokeStyle = '#000'; x.lineWidth = 4; x.stroke();
-    $('#map-title').textContent = B[st.idx].name;
-    // panel lateral
-    let ex = 0; for (let i = 0; i < m.explored.length; i++) ex += m.explored[i]; 
-    const list = found.slice().sort((a, b) => Math.hypot(a.x * T - st.player.x, a.y * T - st.player.y) - Math.hypot(b.x * T - st.player.x, b.y * T - st.player.y));
-    $('#map-side').innerHTML = `<div class="ms-stat">Explorado <b>${Math.round(ex / m.explored.length * 100)}%</b> · Descubiertos <b>${found.length}/${m.pois.length}</b></div>
-      <div class="ms-hint">Haz clic en el mapa para marcar un destino. <kbd>X</kbd> lo borra.</div>` +
-      list.map((q, i) => `<button class="ms-item${q.used ? ' used' : ''}" data-k="${m.pois.indexOf(q)}"><i style="--c:${POI_COL[q.kind]}"><img src="${miniIcon(q.kind, q.used).toDataURL()}" style="width:21px;height:21px;image-rendering:pixelated"></i><span>${POI_NAME[q.kind]}</span><em>${Math.round(Math.hypot((q.x + 0.5) * T - st.player.x, (q.y + 0.5) * T - st.player.y) / T)} m</em></button>`).join('') +
-      (found.length ? '' : '<div class="ms-hint">Aún no has descubierto nada. Explora para revelar el mapa.</div>');
-    document.querySelectorAll('.ms-item').forEach(b => b.onclick = () => { const q = m.pois[+b.dataset.k]; setWaypoint((q.x + 0.5) * T, (q.y + 0.5) * T, POI_NAME[q.kind]); drawFullMap(); });
-  }
-  function setWaypoint(x, y, name) { st.waypoint = { x, y, name: name || 'Destino' }; toast('Destino: ' + st.waypoint.name); }
-  $('#mapcanvas').addEventListener('click', e => {
-    const m = st.map, c = e.currentTarget, r = c.getBoundingClientRect();
-    const wx = (e.clientX - r.left) / r.width * c.width, wy = (e.clientY - r.top) / r.height * c.height;
-    if (st.waypoint && Math.hypot(st.waypoint.x - wx, st.waypoint.y - wy) < 30) { st.waypoint = null; toast('Destino eliminado'); drawFullMap(); return; }
-    const tx = Math.floor(wx / T), ty = Math.floor(wy / T);
-    if (!st.revealAll && !m.explored[ty * m.W + tx]) { toast('Zona sin explorar'); return; }
-    let best = null, bd = 44; for (const q of m.pois) { if (!q.found && !st.revealAll) continue; const d = Math.hypot((q.x + 0.5) * T - wx, (q.y + 0.5) * T - wy); if (d < bd) { bd = d; best = q; } }
-    if (best) setWaypoint((best.x + 0.5) * T, (best.y + 0.5) * T, POI_NAME[bes
+  const BAY8 = (() => { const b = [0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 
