@@ -4,7 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PokeRush</title>
-<script>window.POKERUSH_BUILD = '98ab6b4a2ceb'; /* lo rellena build.py: sirve para avisar de actualizaciones */</script>
+<script>
+/* Red de seguridad: si algo falla al arrancar, no se queda la pantalla en negro y se muestra el error */
+(function () {
+  var shown = false;
+  function unfade() { var f = document.getElementById('fade'); if (f) f.classList.remove('on'); }
+  function report(msg) {
+    unfade(); if (shown || !document.body) return; shown = true;
+    var d = document.createElement('div'); d.id = 'err-box';
+    d.style.cssText = 'position:fixed;left:10px;bottom:10px;z-index:99999;max-width:min(600px,94vw);background:#2a0a10;color:#fff;border:2px solid #ff5a5a;border-radius:8px;padding:10px 26px 10px 12px;font:13px/1.35 monospace;white-space:pre-wrap;box-shadow:0 6px 24px rgba(0,0,0,.6)';
+    d.textContent = '⚠ Ha ocurrido un error en el juego. Haz una captura de este recuadro y envíasela al creador:\n\n' + msg;
+    var x = document.createElement('button'); x.textContent = '✕'; x.style.cssText = 'position:absolute;top:4px;right:6px;background:none;border:none;color:#fff;font-size:16px;cursor:pointer'; x.onclick = function () { d.remove(); };
+    d.appendChild(x); document.body.appendChild(d);
+  }
+  window.POKERUSH_REPORT = report;
+  window.addEventListener('error', function (e) { if (!e || !e.message) return; report(e.message + '\n' + (e.filename || '').split('/').pop() + ' línea ' + (e.lineno || '?') + ':' + (e.colno || '?') + (e.error && e.error.stack ? '\n' + String(e.error.stack).split('\n').slice(0, 4).join('\n') : '')); });
+  // la capa negra de las transiciones nunca debe quedarse puesta más de unos segundos
+  var since = 0; setInterval(function () { var f = document.getElementById('fade'); if (f && f.classList.contains('on')) { if (!since) since = Date.now(); else if (Date.now() - since > 7000) { unfade(); since = 0; } } else since = 0; }, 1000);
+})();
+</script>
+<script>window.POKERUSH_BUILD = 'c7d36d8891f7'; /* lo rellena build.py: sirve para avisar de actualizaciones */</script>
 <script>
 /* =====================================================================
    RANKING ONLINE DE LOS MINIJUEGOS (Firebase, gratis)
@@ -10585,34 +10604,4 @@ body.boss-fight #cb-wave{display:none!important}
     // ordenado en Y con el entrenador y el rival
     const pl = st.player;
     const rival = m.pois.find(q => q.kind === 'rival');
-    const ents = [{ y: pl.y, draw: () => drawPlayer(cx, cy) }].concat(st.mode === 'game' && G.RUN.on ? G.COMBAT.entities(ctx, cx, cy, t) : teamEntities(cx, cy, t));
-    if (rival && st.mode !== 'menu') ents.push({ y: (rival.y + 0.5) * T + 4, draw: () => drawRival(rival, cx, cy, t) });
-    ents.sort((a, b) => a.y - b.y); let ei = 0;
-    for (const p of vis) {
-      while (ei < ents.length && ents[ei].y < p.y) ents[ei++].draw();
-      if (p.poi && p.poi.used) ctx.globalAlpha = 0.5;
-      ctx.drawImage(p.s.cv, Math.round(p.x - p.s.ax - cx), Math.round(p.y - p.s.ay - cy));
-      ctx.globalAlpha = 1;
-      if (p.s.portal) drawPortalSwirl(p, cx, cy, t);
-    }
-    while (ei < ents.length) ents[ei++].draw();
-    FX.drawWorld(ctx, rs);
-    FX.drawSky(ctx, rs);
-    FX.drawLight(ctx, rs);
-    // llamas y leds sobre la luz
-    for (const p of vis) {
-      const ox = Math.round(p.x - p.s.ax - cx), oy = Math.round(p.y - p.s.ay - cy);
-      if (p.s.flames) for (const f of p.s.flames) { const img = SPR.flames[f.k][Math.floor(t * 9 + p.ph + f.x) % 3]; ctx.drawImage(img, Math.round(ox + f.x - 2), Math.round(oy + f.y - 6)); }
-      if (p.poi && p.poi.kind === 'tele') drawTeleBeam(p, cx, cy, t);
-      if (p.poi && p.poi.used) continue;
-      if (p.s.leds) p.s.leds.forEach((l, i) => { if (Math.sin(t * (3 + i) + p.ph * 3) > -0.2) { ctx.fillStyle = l.col; ctx.fillRect(ox + l.x, oy + l.y, 1, 1); } });
-    }
-    FX.drawGlow(ctx, rs);
-    if (st.mode === 'game') { G.COMBAT.drawOver(ctx, st, cx, cy, t); if (G.RUN.on && G.MISS) G.MISS.draw(ctx, st, cx, cy, t); }
-    drawPOIOver(cx, cy, t);
-    drawWaypointWorld(cx, cy, t);
-    FX.drawGrade(ctx, rs);
-    drawTransition();
-  }
-  // disolución pixelada entre biomas (sin tapar la interfaz)
-  const BAY8 = (() => { const b = [0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 
+    const ents = [{ y: pl.y, draw: 
